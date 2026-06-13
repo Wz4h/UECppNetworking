@@ -23,6 +23,10 @@ ANetLesson08DoorActor::ANetLesson08DoorActor()
 
 void ANetLesson08DoorActor::Server_TestDoorRPC_Implementation()
 {
+	if (HasAuthority())
+	{
+		
+	}
 	DoorMesh->SetRelativeScale3D(FVector(0.2f, 0.3f, 2.f));
 	ShowScreenMessage(TEXT("[Lesson8] Door Server RPC EXECUTED on server"), FColor::Green);
 }

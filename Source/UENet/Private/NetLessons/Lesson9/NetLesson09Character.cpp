@@ -33,6 +33,8 @@ void ANetLesson09Character::TestCharacterEntryRPC()
 
 void ANetLesson09Character::Server_Interact_Implementation(ANetLesson09DoorActor* TargetDoor)
 {
+	//if (HasAuthority()) return;
+	
 	if (!IsValid(TargetDoor))
 	{
 		ShowScreenMessage(TEXT("[Lesson9] Server rejected invalid Door"), FColor::Red);

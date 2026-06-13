@@ -17,6 +17,8 @@ public:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 protected:
+	//server attck 
+	//char1 char2 
 	void TestDoorDirectRPC();
 	void ShowScreenMessage(const FString& Message, const FColor& Color) const;
 };
