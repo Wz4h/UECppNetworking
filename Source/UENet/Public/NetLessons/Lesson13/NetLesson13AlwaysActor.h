@@ -21,6 +21,7 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void AddValueOnServer();
+	void ToggleDistanceOnServer();
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Network Lesson 13")

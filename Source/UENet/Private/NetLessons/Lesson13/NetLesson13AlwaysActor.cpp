@@ -11,9 +11,15 @@
 ANetLesson13AlwaysActor::ANetLesson13AlwaysActor()
 {
 	bReplicates = true;
+	
 	bAlwaysRelevant = true;
+	
 	SetReplicateMovement(true);
+	
 	SetNetCullDistanceSquared(1.f);
+	
+	SetNetUpdateFrequency(30.f);
+	SetMinNetUpdateFrequency(30.f);
 
 	USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
@@ -62,6 +68,19 @@ void ANetLesson13AlwaysActor::AddValueOnServer()
 	UpdateVisual();
 }
 
+void ANetLesson13AlwaysActor::ToggleDistanceOnServer()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const bool bIsFar = GetActorLocation().X > 1500.f;
+	SetActorLocation(bIsFar ? FVector(520.f, 0.f, 80.f) : FVector(8000.f, 0.f, 80.f));
+	AddValueOnServer();
+	ForceNetUpdate();
+}
+
 void ANetLesson13AlwaysActor::OnRep_Value()
 {
 	UpdateVisual();
@@ -74,7 +93,7 @@ void ANetLesson13AlwaysActor::UpdateVisual()
 
 	const FString MachineText = HasAuthority() ? TEXT("Server World") : TEXT("Client World");
 	const FString Label = FString::Printf(
-		TEXT("AlwaysRelevant\n%s\nIgnores Distance Cull\nValue=%d"),
+		TEXT("AlwaysRelevant\n%s\nNear / Far\nStill Replicated\nValue=%d"),
 		*MachineText,
 		Value
 	);

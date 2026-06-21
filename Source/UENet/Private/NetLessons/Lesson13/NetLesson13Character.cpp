@@ -49,7 +49,7 @@ void ANetLesson13Character::ServerUpdateAlwaysActor_Implementation()
 {
 	for (TActorIterator<ANetLesson13AlwaysActor> It(GetWorld()); It; ++It)
 	{
-		It->AddValueOnServer();
+		It->ToggleDistanceOnServer();
 	}
 }
 
@@ -57,7 +57,7 @@ void ANetLesson13Character::UpdateLessonText()
 {
 	const FString MachineText = HasAuthority() ? TEXT("Server") : TEXT("Client");
 	const FString Text = FString::Printf(
-		TEXT("%s\nLesson13 AlwaysRelevant\nF: Server Value +1"),
+		TEXT("%s\nLesson13 AlwaysRelevant\nF: Near / Far"),
 		*MachineText
 	);
 	LessonText->SetText(FText::FromString(Text));

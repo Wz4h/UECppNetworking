@@ -29,7 +29,7 @@ void ANetLesson12GameMode::SpawnDistanceActor()
 
 	ANetLesson12RelevancyActor* DistanceActor = World->SpawnActor<ANetLesson12RelevancyActor>(
 		ANetLesson12RelevancyActor::StaticClass(),
-		FVector(520.f, -720.f, 80.f),
+		FVector(520.f, 0.f, 80.f),
 		FRotator::ZeroRotator,
 		SpawnParams
 	);
@@ -38,6 +38,6 @@ void ANetLesson12GameMode::SpawnDistanceActor()
 	{
 		DistanceActor->Tags.Add(TEXT("Lesson12_Distance"));
 		DistanceActor->SetNetCullDistanceSquared(FMath::Square(900.f));
-		DistanceActor->ConfigureDemoActor(ENetLesson12RelevancyMode::Distance, TEXT("Distance Actor"), TEXT("Near / Far Cull"), 1);
+		DistanceActor->ConfigureDemoActor(TEXT("Distance Actor"), TEXT("Near / Far Cull"), 1);
 	}
 }

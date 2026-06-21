@@ -18,7 +18,7 @@ void ANetLesson13GameMode::BeginPlay()
 	{
 		World->SpawnActor<ANetLesson13AlwaysActor>(
 			ANetLesson13AlwaysActor::StaticClass(),
-			FVector(2500.f, 0.f, 80.f),
+			FVector(520.f, 0.f, 80.f),
 			FRotator::ZeroRotator
 		);
 	}

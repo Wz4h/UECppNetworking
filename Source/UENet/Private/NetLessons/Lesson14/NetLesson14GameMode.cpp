@@ -2,6 +2,7 @@
 
 #include "NetLessons/Lesson14/NetLesson14GameMode.h"
 
+#include "GameFramework/PlayerController.h"
 #include "NetLessons/Lesson14/NetLesson14Character.h"
 #include "NetLessons/Lesson14/NetLesson14OwnerActor.h"
 
@@ -24,9 +25,14 @@ void ANetLesson14GameMode::PostLogin(APlayerController* NewPlayer)
 
 	if (UWorld* World = GetWorld())
 	{
+		const int32 SideIndex = (PrivateActorIndex + 1) / 2;
+		const float SideSign = (PrivateActorIndex % 2 == 0) ? 1.f : -1.f;
+		const float SpawnY = PrivateActorIndex == 0 ? 0.f : SideSign * SideIndex * 420.f;
+		const FVector SpawnLocation(520.f, SpawnY, 80.f);
+
 		World->SpawnActor<ANetLesson14OwnerActor>(
 			ANetLesson14OwnerActor::StaticClass(),
-			FVector(520.f, PrivateActorIndex * 320.f, 80.f),
+			SpawnLocation,
 			FRotator::ZeroRotator,
 			SpawnParams
 		);

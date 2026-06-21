@@ -63,8 +63,9 @@ void ANetLesson12Character::ServerToggleDistanceActor_Implementation()
 		if (It->ActorHasTag(TEXT("Lesson12_Distance")))
 		{
 			const bool bIsFar = It->GetActorLocation().X > 1500.f;
-			It->SetActorLocation(bIsFar ? FVector(520.f, -720.f, 80.f) : FVector(3000.f, -720.f, 80.f));
+			It->SetActorLocation(bIsFar ? FVector(520.f, 0.f, 80.f) : FVector(4000.f, 0.f, 80.f));
 			It->AddValueOnServer();
+			It->ForceNetUpdate();
 		}
 	}
 }
