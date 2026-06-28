@@ -509,3 +509,530 @@ Dormancy
 最后记住一句话：
 
 > **网络优化不是让网络更快，而是让网络需要发送的数据越来越少。**
+>
+> # UE `stat net` 常用统计项说明
+
+> `stat net` 是 UE 最常用的网络分析工具，可以实时查看网络带宽、同步对象、网络包数量以及网络模块 CPU 开销。
+
+---
+
+# 一、Cycle Counters（网络 CPU Profiling）
+
+这一部分统计的是：
+
+> **网络模块各个函数消耗了多少 CPU 时间。**
+
+普通 Gameplay 开发基本不用关注，主要用于网络性能分析和引擎源码调试。
+
+| 项目                                      | 作用              | 常见场景                 |
+| --------------------------------------- | --------------- | -------------------- |
+| NetConnection Tick                      | 每帧网络主循环         | 网络总体 CPU 开销          |
+| IpConnection Socket SendTo              | Socket 发送数据     | 发包耗时                 |
+| IpNetDriver SocketRecvFrom              | Socket 接收数据     | 收包耗时                 |
+| Channel ReceivedRawBunch                | 解析收到的网络数据       | RPC / Replication 接收 |
+| IpNetDriver ProcessRemoteFunction       | 发送 RPC          | RPC 序列化              |
+| PacketHandler Incoming                  | 收包处理            | 解压、校验等               |
+| PacketHandler Outgoing                  | 发包处理            | 压缩、加密等               |
+| NetConnection NetConnectionReceivedAcks | Reliable ACK 处理 | Reliable RPC         |
+| ActorChan_FindOrCreateRep               | 创建 Replicator   | Actor 开始同步           |
+| ActorChan_PostNetInit                   | Actor 网络初始化     | Spawn 同步             |
+| ActorChan_CleanUp                       | ActorChannel 销毁 | Actor 失效             |
+| NetDriver AddClientConnection           | 客户端连接           | 玩家加入                 |
+| IpConnection InitRemoteConnection       | 初始化连接           | 建立连接                 |
+
+---
+
+# 二、Counters（Gameplay 最常关注）
+
+---
+
+## In Rate (bytes)
+
+表示：
+
+```text
+每秒接收多少字节数据
+```
+
+单位：
+
+```text
+Bytes/s
+```
+
+例如：
+
+```text
+3500 Bytes/s
+```
+
+表示：
+
+客户端每秒接收约 3.5KB 数据。
+
+---
+
+## Out Rate (bytes)
+
+表示：
+
+```text
+每秒发送多少字节数据
+```
+
+这是网络优化最重要的指标之一。
+
+如果：
+
+```text
+Out Rate 很高
+```
+
+通常说明：
+
+* 同步 Actor 太多
+* 同步变量太多
+* 同步频率太高
+
+---
+
+## In Packets
+
+表示：
+
+```text
+每秒收到多少网络包
+```
+
+单位：
+
+```text
+Packet/s
+```
+
+---
+
+## Out Packets
+
+表示：
+
+```text
+每秒发送多少网络包
+```
+
+注意：
+
+Packet 数量和带宽不是一回事。
+
+例如：
+
+```text
+100 Packet
+500KB
+```
+
+和：
+
+```text
+50 Packet
+500KB
+```
+
+带宽一样，
+
+但第二种：
+
+每个 Packet 更大。
+
+---
+
+## In Bunches
+
+表示：
+
+```text
+收到多少个 Bunch
+```
+
+Bunch 是 UE 内部的数据块。
+
+一个 Packet 可以包含多个 Bunch。
+
+---
+
+## Out Bunches
+
+表示：
+
+```text
+发送多少个 Bunch
+```
+
+一般：
+
+```text
+Packet
+
+↓
+
+包含多个 Bunch
+
+↓
+
+每个 Bunch 保存一个同步消息
+```
+
+例如：
+
+```text
+Packet
+
+├ RPC
+├ Health
+├ Position
+└ Ammo
+```
+
+---
+
+## Num Actors
+
+表示：
+
+```text
+当前 World 中 Actor 总数量
+```
+
+包括：
+
+* Camera
+* Sky
+* Light
+* Character
+* StaticMesh
+* Trigger
+
+所有 Actor。
+
+---
+
+## Num Network Actors
+
+表示：
+
+```text
+参与网络同步的 Actor 数量
+```
+
+即：
+
+```text
+Replicated Actor
+```
+
+通常：
+
+```text
+Num Actors
+
+>=
+
+Num Network Actors
+```
+
+---
+
+## Channels
+
+表示：
+
+```text
+当前网络连接中的所有 Channel 数量
+```
+
+包括：
+
+* ActorChannel
+* ControlChannel
+* VoiceChannel
+
+因此：
+
+```text
+Channels
+
+>=
+
+Num Actor Channels
+```
+
+---
+
+## Num Actor Channels
+
+表示：
+
+```text
+真正建立 ActorChannel 的数量
+```
+
+注意：
+
+Replicated Actor
+
+并不一定已经建立 ActorChannel。
+
+只有：
+
+```text
+Relevant
+
+↓
+
+Create ActorChannel
+
+↓
+
+开始同步
+```
+
+因此：
+
+```text
+Num Network Actors
+
+通常大于
+
+Num Actor Channels
+```
+
+---
+
+## Ping
+
+表示：
+
+```text
+客户端与服务器延迟
+```
+
+单位：
+
+```text
+ms
+```
+
+例如：
+
+```text
+20ms
+
+80ms
+
+150ms
+```
+
+---
+
+## In Loss
+
+表示：
+
+```text
+网络丢包率
+```
+
+正常情况下：
+
+```text
+0%
+```
+
+如果：
+
+```text
+5%
+
+10%
+```
+
+说明网络环境较差。
+
+---
+
+## Imported NetGuids
+
+表示：
+
+```text
+收到多少新的 NetGUID
+```
+
+一般无需关注。
+
+主要用于：
+
+Actor、
+
+资源、
+
+Object 引用同步。
+
+---
+
+## Unmapped Replicators
+
+表示：
+
+```text
+还有多少对象等待映射
+```
+
+正常情况下：
+
+```text
+0
+```
+
+一般无需关注。
+
+---
+
+## Largest Reliable Incoming Queue Size
+
+表示：
+
+```text
+Reliable 队列最大积压数量
+```
+
+如果持续增长：
+
+说明：
+
+Reliable RPC 发送过多。
+
+---
+
+# 三、课程重点关注哪些？
+
+对于 Gameplay 网络开发，只需要长期关注下面五项。
+
+| 指标                 | 为什么关注          |
+| ------------------ | -------------- |
+| Out Rate           | 网络带宽           |
+| In Rate            | 网络带宽           |
+| Num Network Actors | 当前参与同步 Actor 数 |
+| Num Actor Channels | 当前真正同步 Actor 数 |
+| Ping               | 网络延迟           |
+
+其它统计项了解即可。
+
+---
+
+# 四、如何分析网络优化
+
+例如：
+
+```
+Spawn 1000 个 Replicated Actor
+```
+
+观察：
+
+```
+Num Network Actors ↑
+
+Actor Channels ↑
+
+Out Rate ↑
+```
+
+说明：
+
+同步对象太多。
+
+---
+
+开启：
+
+```
+Relevancy
+```
+
+再次观察：
+
+```
+Actor Channels ↓
+
+Out Rate ↓
+```
+
+说明：
+
+优化成功。
+
+---
+
+降低：
+
+```
+NetUpdateFrequency
+```
+
+再次观察：
+
+```
+Out Packets ↓
+
+Out Rate ↓
+```
+
+说明：
+
+同步频率降低。
+
+---
+
+修改：
+
+```
+FastArray
+```
+
+再次观察：
+
+```
+Out Bunches ↓
+
+Out Rate ↓
+```
+
+说明：
+
+同步数据减少。
+
+---
+
+# 五、最终记住一句话
+
+`stat net` 有两部分：
+
+**上半部分：**
+
+> 网络模块 CPU Profiling（源码分析）
+
+**下半部分：**
+
+> Gameplay 网络统计（开发重点）
+
+对于绝大多数 UE Gameplay 开发者，只需要重点关注：
+
+* Out Rate
+* In Rate
+* Num Network Actors
+* Num Actor Channels
+* Ping
+
+并通过它们验证网络优化是否真正生效。
+
