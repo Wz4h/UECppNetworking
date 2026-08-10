@@ -18,7 +18,7 @@
 // - GAMEPLAYATTRIBUTE_VALUE_INITTER：生成 InitHealth()，初始化 BaseValue 和 CurrentValue。
 //
 // 本宏只是把这四个官方宏打包，方便每个属性后面写一行。
-#define GASLESSON1_ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \ 
+#define GASLESSON1_ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
 	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
 	GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
 	GAMEPLAYATTRIBUTE_VALUE_SETTER(PropertyName) \
