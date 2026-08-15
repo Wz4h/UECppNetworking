@@ -3,6 +3,7 @@ import unreal
 
 ROOT_PATH = "/Game/GASLesson2"
 EFFECT_PATH = f"{ROOT_PATH}/Effects"
+DATA_PATH = f"{ROOT_PATH}/Data"
 ATTRIBUTE_CLASS_PATH = "/Script/UENet.GASLesson2AttributeSet"
 
 
@@ -42,6 +43,29 @@ def get_blueprint_cdo(blueprint):
     return unreal.get_default_object(generated_class)
 
 
+def create_or_load_level_damage_curve():
+    asset_name = "CT_LevelDamage"
+    asset_path = f"{DATA_PATH}/{asset_name}"
+    if unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+        curve_table = unreal.EditorAssetLibrary.load_asset(asset_path)
+        require(isinstance(curve_table, unreal.CurveTable), f"{asset_path} exists but is not a CurveTable")
+        log(f"Load existing {asset_path}")
+    else:
+        factory = unreal.CurveTableFactory()
+        curve_table = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            asset_name,
+            DATA_PATH,
+            unreal.CurveTable,
+            factory,
+        )
+        require(curve_table is not None, f"Failed to create {asset_path}")
+        log(f"Created {asset_path}")
+
+    unreal.GASLesson2EffectLibrary.configure_level_damage_curve(curve_table)
+    require(unreal.EditorAssetLibrary.save_loaded_asset(curve_table, False), f"Failed to save {asset_name}")
+    return curve_table
+
+
 def make_scalable_magnitude(template, value):
     magnitude = template.copy()
     magnitude.import_text(
@@ -51,7 +75,7 @@ def make_scalable_magnitude(template, value):
     return magnitude
 
 
-def make_modifier(attribute_name, value=None, set_by_caller_tag=None):
+def make_modifier(attribute_name, value=None, set_by_caller_tag=None, modifier_op="AddBase"):
     modifier = unreal.GameplayModifierInfo()
     if set_by_caller_tag:
         magnitude_text = (
@@ -69,7 +93,7 @@ def make_modifier(attribute_name, value=None, set_by_caller_tag=None):
         f'Attribute=(AttributeName="{attribute_name}",'
         f"Attribute={ATTRIBUTE_CLASS_PATH}:{attribute_name},"
         f"AttributeOwner={ATTRIBUTE_CLASS_PATH}),"
-        "ModifierOp=AddBase,"
+        f"ModifierOp={modifier_op},"
         f"ModifierMagnitude={magnitude_text}"
         ")"
     )
@@ -88,14 +112,19 @@ def make_gameplay_tags(tag_names):
 
 
 def add_target_tags_component(effect_cdo, tag_names):
-    if not tag_names:
-        effect_cdo.set_editor_property("ge_components", [])
-        return
+    if tag_names:
+        unreal.GASLesson2EffectLibrary.configure_granted_tags(
+            effect_cdo,
+            make_gameplay_tags(tag_names),
+        )
 
-    unreal.GASLesson2EffectLibrary.configure_granted_tags(
-        effect_cdo,
-        make_gameplay_tags(tag_names),
-    )
+
+def add_application_requirements_component(effect_cdo, tag_names):
+    if tag_names:
+        unreal.GASLesson2EffectLibrary.configure_application_required_tags(
+            effect_cdo,
+            make_gameplay_tags(tag_names),
+        )
 
 
 def set_scalable_float_property(target, property_name, value):
@@ -113,6 +142,9 @@ def configure_effect(
     period=None,
     set_by_caller_tag=None,
     granted_tags=None,
+    application_required_tags=None,
+    modifier_op="AddBase",
+    level_curve=None,
     stacking=False,
 ):
     blueprint = create_or_load_blueprint(asset_name, EFFECT_PATH, unreal.GameplayEffect.static_class())
@@ -120,10 +152,16 @@ def configure_effect(
     effect_cdo.modify()
 
     effect_cdo.set_editor_property("duration_policy", duration_policy)
-    effect_cdo.set_editor_property(
-        "modifiers",
-        [make_modifier(attribute_name, magnitude, set_by_caller_tag)],
-    )
+    effect_cdo.set_editor_property("ge_components", [])
+    if level_curve is not None:
+        unreal.GASLesson2EffectLibrary.configure_level_damage_modifier(effect_cdo, level_curve)
+    elif attribute_name is not None:
+        effect_cdo.set_editor_property(
+            "modifiers",
+            [make_modifier(attribute_name, magnitude, set_by_caller_tag, modifier_op)],
+        )
+    else:
+        effect_cdo.set_editor_property("modifiers", [])
 
     if duration is not None:
         duration_template = effect_cdo.get_editor_property("duration_magnitude")
@@ -144,6 +182,7 @@ def configure_effect(
         effect_cdo.set_editor_property("stack_limit_count", 0)
 
     add_target_tags_component(effect_cdo, granted_tags or [])
+    add_application_requirements_component(effect_cdo, application_required_tags or [])
     blueprint.modify()
     require(unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False), f"Failed to save {asset_name}")
     log(f"Configured {asset_name}")
@@ -162,6 +201,10 @@ def set_character_effect_defaults(character_blueprint, effects):
         "dynamic_damage_effect": "GE_DynamicDamage",
         "poison_effect": "GE_Poison",
         "stack_attack_effect": "GE_StackAttack",
+        "attack_multiply_effect": "GE_AttackMultiply",
+        "level_damage_effect": "GE_LevelDamage",
+        "oiled_effect": "GE_Oiled",
+        "burning_requires_oil_effect": "GE_BurningRequiresOil",
     }
     for property_name, effect_name in property_map.items():
         character_cdo.set_editor_property(property_name, effects[effect_name].generated_class())
@@ -189,6 +232,9 @@ def verify_effect(
     expected_period=0.0,
     expected_set_by_caller_tag=None,
     expected_granted_tags=None,
+    expected_application_required_tags=None,
+    expected_modifier_op=None,
+    expected_modifier_count=1,
     expected_stack_limit=0,
 ):
     blueprint = unreal.EditorAssetLibrary.load_asset(f"{EFFECT_PATH}/{asset_name}")
@@ -196,12 +242,14 @@ def verify_effect(
     effect_cdo = get_blueprint_cdo(blueprint)
     require(effect_cdo.get_editor_property("duration_policy") == expected_policy, f"{asset_name} duration policy mismatch")
     modifiers = effect_cdo.get_editor_property("modifiers")
-    require(len(modifiers) == 1, f"{asset_name} modifier count mismatch")
-    require(
-        modifiers[0].get_editor_property("attribute").get_editor_property("attribute_name") == expected_attribute,
-        f"{asset_name} attribute mismatch",
-    )
-    modifier_text = modifiers[0].export_text()
+    require(len(modifiers) == expected_modifier_count, f"{asset_name} modifier count mismatch")
+    modifier_text = ""
+    if expected_modifier_count:
+        require(
+            modifiers[0].get_editor_property("attribute").get_editor_property("attribute_name") == expected_attribute,
+            f"{asset_name} attribute mismatch",
+        )
+        modifier_text = modifiers[0].export_text()
     if expected_magnitude is not None:
         require(
             f"Value={float(expected_magnitude):.6f}" in modifier_text,
@@ -213,6 +261,8 @@ def verify_effect(
             f'TagName="{expected_set_by_caller_tag}"' in modifier_text,
             f"{asset_name} SetByCaller tag mismatch",
         )
+    if expected_modifier_op is not None:
+        require(f"ModifierOp={expected_modifier_op}" in modifier_text, f"{asset_name} modifier op mismatch")
 
     period = effect_cdo.get_editor_property("period").get_editor_property("value")
     require(abs(period - expected_period) < 0.001, f"{asset_name} period mismatch: {period}")
@@ -234,7 +284,21 @@ def verify_effect(
             unreal.GASLesson2EffectLibrary.has_granted_tag(effect_cdo, tag),
             f"{asset_name} missing granted tag {tag_name}",
         )
+    for tag_name in expected_application_required_tags or []:
+        tag = unreal.GameplayTag()
+        tag.import_text(f'(TagName="{tag_name}")')
+        require(
+            unreal.GASLesson2EffectLibrary.has_application_required_tag(effect_cdo, tag),
+            f"{asset_name} missing application required tag {tag_name}",
+        )
     log(f"Verified {asset_name}")
+
+
+def verify_level_damage_curve(curve_table):
+    for level, expected_damage in ((1.0, -10.0), (2.0, -20.0), (3.0, -40.0)):
+        actual_damage = unreal.GASLesson2EffectLibrary.get_level_damage_magnitude(curve_table, level)
+        require(abs(actual_damage - expected_damage) < 0.001, f"Level {level} damage mismatch: {actual_damage}")
+    log("Verified CT_LevelDamage at levels 1, 2, and 3")
 
 
 def verify_blueprint_defaults(effects):
@@ -251,6 +315,10 @@ def verify_blueprint_defaults(effects):
         "dynamic_damage_effect": "GE_DynamicDamage",
         "poison_effect": "GE_Poison",
         "stack_attack_effect": "GE_StackAttack",
+        "attack_multiply_effect": "GE_AttackMultiply",
+        "level_damage_effect": "GE_LevelDamage",
+        "oiled_effect": "GE_Oiled",
+        "burning_requires_oil_effect": "GE_BurningRequiresOil",
     }
     character_cdo = get_blueprint_cdo(character_blueprint)
     for property_name, effect_name in property_map.items():
@@ -271,6 +339,7 @@ def main():
     if not unreal.EditorAssetLibrary.does_directory_exist(EFFECT_PATH):
         require(unreal.EditorAssetLibrary.make_directory(EFFECT_PATH), f"Failed to create {EFFECT_PATH}")
 
+    level_damage_curve = create_or_load_level_damage_curve()
     effects = {
         "GE_Damage": configure_effect(
             "GE_Damage", unreal.GameplayEffectDurationType.INSTANT, "Health", magnitude=-20.0
@@ -316,6 +385,37 @@ def main():
             duration=10.0,
             granted_tags=["Demo.Effect", "Demo.Effect.Stack"],
             stacking=True,
+        ),
+        "GE_AttackMultiply": configure_effect(
+            "GE_AttackMultiply",
+            unreal.GameplayEffectDurationType.HAS_DURATION,
+            "Attack",
+            magnitude=1.5,
+            duration=5.0,
+            modifier_op="MultiplyAdditive",
+            granted_tags=["Demo.Effect", "Demo.Effect.AttackMultiply"],
+        ),
+        "GE_LevelDamage": configure_effect(
+            "GE_LevelDamage",
+            unreal.GameplayEffectDurationType.INSTANT,
+            "Health",
+            level_curve=level_damage_curve,
+        ),
+        "GE_Oiled": configure_effect(
+            "GE_Oiled",
+            unreal.GameplayEffectDurationType.INFINITE,
+            None,
+            granted_tags=["Demo.Effect", "Demo.Effect.Oiled", "State.Oiled"],
+        ),
+        "GE_BurningRequiresOil": configure_effect(
+            "GE_BurningRequiresOil",
+            unreal.GameplayEffectDurationType.HAS_DURATION,
+            "Health",
+            magnitude=-3.0,
+            duration=5.0,
+            period=1.0,
+            granted_tags=["Demo.Effect", "Demo.Effect.Burning", "State.Burning"],
+            application_required_tags=["State.Oiled"],
         ),
     }
 
@@ -373,6 +473,39 @@ def main():
         expected_granted_tags=["Demo.Effect", "Demo.Effect.Stack"],
         expected_stack_limit=5,
     )
+    verify_effect(
+        "GE_AttackMultiply",
+        unreal.GameplayEffectDurationType.HAS_DURATION,
+        "Attack",
+        expected_magnitude=1.5,
+        expected_duration=5.0,
+        expected_modifier_op="MultiplyAdditive",
+        expected_granted_tags=["Demo.Effect", "Demo.Effect.AttackMultiply"],
+    )
+    verify_effect(
+        "GE_LevelDamage",
+        unreal.GameplayEffectDurationType.INSTANT,
+        "Health",
+        expected_modifier_op="AddBase",
+    )
+    verify_effect(
+        "GE_Oiled",
+        unreal.GameplayEffectDurationType.INFINITE,
+        None,
+        expected_modifier_count=0,
+        expected_granted_tags=["Demo.Effect", "Demo.Effect.Oiled", "State.Oiled"],
+    )
+    verify_effect(
+        "GE_BurningRequiresOil",
+        unreal.GameplayEffectDurationType.HAS_DURATION,
+        "Health",
+        expected_magnitude=-3.0,
+        expected_duration=5.0,
+        expected_period=1.0,
+        expected_granted_tags=["Demo.Effect", "Demo.Effect.Burning", "State.Burning"],
+        expected_application_required_tags=["State.Oiled"],
+    )
+    verify_level_damage_curve(level_damage_curve)
     verify_blueprint_defaults(effects)
     log("SUCCESS: all GASLesson2 assets were created and verified")
 

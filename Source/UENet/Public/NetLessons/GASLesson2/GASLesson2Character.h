@@ -62,17 +62,35 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
 	TSubclassOf<UGameplayEffect> StackAttackEffect;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> AttackMultiplyEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> LevelDamageEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> OiledEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> BurningRequiresOilEffect;
+
 	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Debug", meta = (ClampMin = "0.0"))
 	float DynamicDamageAmount = 30.f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Debug", meta = (ClampMin = "0.0"))
+	float TargetEffectRange = 1500.f;
+
 private:
 	FActiveGameplayEffectHandle WeaponEffectHandle;
+	int32 NextLevelDamageTestLevel = 1;
 
 	void InitializeAbilitySystem();
 	void BindAttributeDelegates();
 
 	FActiveGameplayEffectHandle ApplyEffectToSelf(TSubclassOf<UGameplayEffect> EffectClass, float Level = 1.f);
+	FActiveGameplayEffectHandle ApplyEffectToTarget(TSubclassOf<UGameplayEffect> EffectClass, UAbilitySystemComponent* TargetAbilitySystem, float Level = 1.f);
 	void ApplyDynamicDamage(float Damage);
+	void ApplyDamageToAimedTarget();
 	void RemoveWeaponEffect();
 	void ClearDemoEffects();
 	void PrintAttributes() const;
@@ -92,10 +110,14 @@ private:
 	void TestStackAttack();
 	void TestPrintAttributes();
 	void TestClearEffects();
+	void TestAttackMultiply();
+	void TestLevelDamage();
+	void TestApplyOiled();
+	void TestBurningRequiresOil();
+	void TestDamageAimedTarget();
 
 	UFUNCTION(Server, Reliable)
 	void ServerApplyTestEffect(int32 TestIndex);
 
 	void ShowDebugMessage(const FString& Message, const FColor& Color = FColor::Cyan) const;
 };
-

@@ -25,10 +25,16 @@ namespace GASLesson2
 	constexpr int32 PoisonIndex = 7;
 	constexpr int32 StackAttackIndex = 8;
 	constexpr int32 PrintAttributesIndex = 9;
-	constexpr int32 MaxTestIndex = 9;
+	constexpr int32 AttackMultiplyIndex = 10;
+	constexpr int32 LevelDamageIndex = 11;
+	constexpr int32 ApplyOiledIndex = 12;
+	constexpr int32 BurningRequiresOilIndex = 13;
+	constexpr int32 DamageAimedTargetIndex = 14;
+	constexpr int32 MaxTestIndex = 14;
 
 	const FName DynamicDamageTagName(TEXT("Data.Damage"));
 	const FName DemoEffectTagName(TEXT("Demo.Effect"));
+	const FName OiledTagName(TEXT("State.Oiled"));
 }
 
 AGASLesson2Character::AGASLesson2Character()
@@ -93,6 +99,11 @@ void AGASLesson2Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	PlayerInputComponent->BindKey(EKeys::Seven, IE_Pressed, this, &ThisClass::TestPoison);
 	PlayerInputComponent->BindKey(EKeys::Eight, IE_Pressed, this, &ThisClass::TestStackAttack);
 	PlayerInputComponent->BindKey(EKeys::Nine, IE_Pressed, this, &ThisClass::TestPrintAttributes);
+	PlayerInputComponent->BindKey(EKeys::F1, IE_Pressed, this, &ThisClass::TestAttackMultiply);
+	PlayerInputComponent->BindKey(EKeys::F2, IE_Pressed, this, &ThisClass::TestLevelDamage);
+	PlayerInputComponent->BindKey(EKeys::F3, IE_Pressed, this, &ThisClass::TestApplyOiled);
+	PlayerInputComponent->BindKey(EKeys::F4, IE_Pressed, this, &ThisClass::TestBurningRequiresOil);
+	PlayerInputComponent->BindKey(EKeys::F5, IE_Pressed, this, &ThisClass::TestDamageAimedTarget);
 }
 
 UAbilitySystemComponent* AGASLesson2Character::GetAbilitySystemComponent() const
@@ -142,6 +153,31 @@ FActiveGameplayEffectHandle AGASLesson2Character::ApplyEffectToSelf(TSubclassOf<
 	return AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 }
 
+FActiveGameplayEffectHandle AGASLesson2Character::ApplyEffectToTarget(
+	TSubclassOf<UGameplayEffect> EffectClass,
+	UAbilitySystemComponent* TargetAbilitySystem,
+	float Level)
+{
+	if (!AbilitySystemComponent || !TargetAbilitySystem || !EffectClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[GAS] Target Effect, source ASC, or target ASC is not configured."));
+		return {};
+	}
+
+	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
+	Context.AddSourceObject(this);
+	FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, Level, Context);
+	if (!SpecHandle.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[GAS] Failed to create target GameplayEffectSpec: %s"), *GetNameSafe(EffectClass.Get()));
+		return {};
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[GAS] Apply %s from %s to %s"),
+		*GetNameSafe(EffectClass.Get()), *GetName(), *GetNameSafe(TargetAbilitySystem->GetAvatarActor()));
+	return AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetAbilitySystem);
+}
+
 void AGASLesson2Character::ApplyDynamicDamage(float Damage)
 {
 	if (!AbilitySystemComponent || !DynamicDamageEffect)
@@ -173,6 +209,46 @@ void AGASLesson2Character::ApplyDynamicDamage(float Damage)
 	UE_LOG(LogTemp, Warning, TEXT("[GAS] SetByCaller Data.Damage = %.2f"), DamageMagnitude);
 	UE_LOG(LogTemp, Warning, TEXT("[GAS] Apply GameplayEffectSpec"));
 	AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+}
+
+void AGASLesson2Character::ApplyDamageToAimedTarget()
+{
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetActorEyesViewPoint(ViewLocation, ViewRotation);
+
+	FHitResult HitResult;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(GASLesson2TargetTrace), true, this);
+	const FVector TraceEnd = ViewLocation + ViewRotation.Vector() * TargetEffectRange;
+	if (!GetWorld()->LineTraceSingleByChannel(HitResult, ViewLocation, TraceEnd, ECC_Visibility, QueryParams))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 found no target within %.0f units."), TargetEffectRange);
+		return;
+	}
+
+	AActor* TargetActor = HitResult.GetActor();
+	if (!TargetActor || TargetActor == this || FVector::DistSquared(GetActorLocation(), TargetActor->GetActorLocation()) > FMath::Square(TargetEffectRange))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 target is invalid or out of range."));
+		return;
+	}
+
+	IAbilitySystemInterface* TargetAbilitySystemInterface = Cast<IAbilitySystemInterface>(TargetActor);
+	UAbilitySystemComponent* TargetAbilitySystem = TargetAbilitySystemInterface
+		? TargetAbilitySystemInterface->GetAbilitySystemComponent()
+		: nullptr;
+	if (!TargetAbilitySystem)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 target %s has no AbilitySystemComponent."), *GetNameSafe(TargetActor));
+		return;
+	}
+
+	ApplyEffectToTarget(DamageEffect, TargetAbilitySystem);
 }
 
 void AGASLesson2Character::RemoveWeaponEffect()
@@ -312,6 +388,39 @@ void AGASLesson2Character::ExecuteTest(int32 TestIndex)
 	case GASLesson2::PrintAttributesIndex:
 		PrintAttributes();
 		break;
+	case GASLesson2::AttackMultiplyIndex:
+		ApplyEffectToSelf(AttackMultiplyEffect);
+		break;
+	case GASLesson2::LevelDamageIndex:
+		{
+			const int32 AppliedLevel = NextLevelDamageTestLevel;
+			ApplyEffectToSelf(LevelDamageEffect, static_cast<float>(AppliedLevel));
+			NextLevelDamageTestLevel = AppliedLevel >= 3 ? 1 : AppliedLevel + 1;
+			UE_LOG(LogTemp, Warning, TEXT("[GAS] Applied level-scaled damage at GE Level %d. Next level: %d."), AppliedLevel, NextLevelDamageTestLevel);
+		}
+		break;
+	case GASLesson2::ApplyOiledIndex:
+		{
+			const FGameplayTag OiledTag = FGameplayTag::RequestGameplayTag(GASLesson2::OiledTagName, false);
+			if (OiledTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(OiledTag))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[GAS] State.Oiled is already active."));
+			}
+			else
+			{
+				ApplyEffectToSelf(OiledEffect);
+			}
+		}
+		break;
+	case GASLesson2::BurningRequiresOilIndex:
+		if (!ApplyEffectToSelf(BurningRequiresOilEffect).IsValid())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[GAS] Burning was rejected. Apply State.Oiled with F3 first."));
+		}
+		break;
+	case GASLesson2::DamageAimedTargetIndex:
+		ApplyDamageToAimedTarget();
+		break;
 	default:
 		break;
 	}
@@ -335,6 +444,11 @@ void AGASLesson2Character::TestPrintAttributes()
 	}
 }
 void AGASLesson2Character::TestClearEffects() { RequestTest(GASLesson2::ClearEffectsIndex); }
+void AGASLesson2Character::TestAttackMultiply() { RequestTest(GASLesson2::AttackMultiplyIndex); }
+void AGASLesson2Character::TestLevelDamage() { RequestTest(GASLesson2::LevelDamageIndex); }
+void AGASLesson2Character::TestApplyOiled() { RequestTest(GASLesson2::ApplyOiledIndex); }
+void AGASLesson2Character::TestBurningRequiresOil() { RequestTest(GASLesson2::BurningRequiresOilIndex); }
+void AGASLesson2Character::TestDamageAimedTarget() { RequestTest(GASLesson2::DamageAimedTargetIndex); }
 
 void AGASLesson2Character::ServerApplyTestEffect_Implementation(int32 TestIndex)
 {
