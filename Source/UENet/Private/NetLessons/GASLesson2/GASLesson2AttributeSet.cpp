@@ -11,6 +11,8 @@ UGASLesson2AttributeSet::UGASLesson2AttributeSet()
 	InitMaxHealth(100.f);
 	InitHealth(100.f);
 	InitAttack(20.f);
+	InitDefense(5.f);
+	InitDamage(0.f);
 }
 
 void UGASLesson2AttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -20,6 +22,7 @@ void UGASLesson2AttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	DOREPLIFETIME_CONDITION_NOTIFY(UGASLesson2AttributeSet, Health, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGASLesson2AttributeSet, MaxHealth, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGASLesson2AttributeSet, Attack, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UGASLesson2AttributeSet, Defense, COND_None, REPNOTIFY_Always);
 }
 
 void UGASLesson2AttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -36,9 +39,20 @@ void UGASLesson2AttributeSet::PostGameplayEffectExecute(const FGameplayEffectMod
 {
 	Super::PostGameplayEffectExecute(Data);
 
-	// Instant 和 Periodic GE 执行后再次收口，确保生命值不会越界。
-	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+	if (Data.EvaluatedData.Attribute == GetDamageAttribute())
 	{
+		// Execution 输出的是正数伤害。Damage 只充当一次结算的“收件箱”，用完立即清零。
+		const float LocalDamage = GetDamage();
+		SetDamage(0.f);
+
+		if (LocalDamage > 0.f)
+		{
+			SetHealth(FMath::Clamp(GetHealth() - LocalDamage, 0.f, GetMaxHealth()));
+		}
+	}
+	else if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+	{
+		// Instant 和 Periodic GE 执行后再次收口，确保生命值不会越界。
 		SetHealth(FMath::Clamp(GetHealth(), 0.f, GetMaxHealth()));
 	}
 }
@@ -58,3 +72,7 @@ void UGASLesson2AttributeSet::OnRep_Attack(const FGameplayAttributeData& OldAtta
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UGASLesson2AttributeSet, Attack, OldAttack);
 }
 
+void UGASLesson2AttributeSet::OnRep_Defense(const FGameplayAttributeData& OldDefense)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UGASLesson2AttributeSet, Defense, OldDefense);
+}

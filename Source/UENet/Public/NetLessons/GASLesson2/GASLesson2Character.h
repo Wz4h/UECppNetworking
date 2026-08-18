@@ -74,8 +74,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
 	TSubclassOf<UGameplayEffect> BurningRequiresOilEffect;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> AttributeBasedHealEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> MMCHealEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> ExecutionDamageEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> CleanseEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Effects")
+	TSubclassOf<UGameplayEffect> DamageImmunityEffect;
+
 	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Debug", meta = (ClampMin = "0.0"))
 	float DynamicDamageAmount = 30.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Debug", meta = (ClampMin = "0.0"))
+	float ExecutionBaseDamage = 30.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GAS Lesson 2|Debug", meta = (ClampMin = "0.0"))
 	float TargetEffectRange = 1500.f;
@@ -87,16 +105,21 @@ private:
 	void InitializeAbilitySystem();
 	void BindAttributeDelegates();
 
-	FActiveGameplayEffectHandle ApplyEffectToSelf(TSubclassOf<UGameplayEffect> EffectClass, float Level = 1.f);
-	FActiveGameplayEffectHandle ApplyEffectToTarget(TSubclassOf<UGameplayEffect> EffectClass, UAbilitySystemComponent* TargetAbilitySystem, float Level = 1.f);
+	/** 按照 Context -> Spec -> Apply 的标准流程，把一个 GameplayEffect 应用给自己的 ASC。 */
+	FActiveGameplayEffectHandle ApplyEffectToSelf(TSubclassOf<UGameplayEffect> EffectClass, float EffectLevel = 1.f);
+	/** 由自己的 ASC 创建 Spec，再把 GameplayEffect 应用给另一个目标 ASC。 */
+	FActiveGameplayEffectHandle ApplyEffectToTarget(TSubclassOf<UGameplayEffect> EffectClass, UAbilitySystemComponent* TargetAbilitySystem, float EffectLevel = 1.f);
 	void ApplyDynamicDamage(float Damage);
+	bool FindAimedTarget(FHitResult& OutHitResult, UAbilitySystemComponent*& OutTargetAbilitySystem) const;
 	void ApplyDamageToAimedTarget();
+	void ApplyExecutionDamageToAimedTarget();
 	void RemoveWeaponEffect();
 	void ClearDemoEffects();
 	void PrintAttributes() const;
 
 	void OnHealthChanged(const FOnAttributeChangeData& Data);
 	void OnAttackChanged(const FOnAttributeChangeData& Data);
+	void OnDefenseChanged(const FOnAttributeChangeData& Data);
 
 	void RequestTest(int32 TestIndex);
 	void ExecuteTest(int32 TestIndex);
@@ -115,6 +138,11 @@ private:
 	void TestApplyOiled();
 	void TestBurningRequiresOil();
 	void TestDamageAimedTarget();
+	void TestAttributeBasedHeal();
+	void TestMMCHeal();
+	void TestExecutionDamageAimedTarget();
+	void TestCleanse();
+	void TestDamageImmunity();
 
 	UFUNCTION(Server, Reliable)
 	void ServerApplyTestEffect(int32 TestIndex);

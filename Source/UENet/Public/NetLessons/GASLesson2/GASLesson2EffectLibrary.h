@@ -32,6 +32,39 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GAS Lesson 2|Editor")
 	static bool HasApplicationRequiredTag(const UGameplayEffect* GameplayEffect, FGameplayTag RequiredTag);
 
+	/** 配置 GE 资产自身的标签；这些标签不会授予目标 Actor。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureAssetTags(UGameplayEffect* GameplayEffect, const FGameplayTagContainer& AssetTags);
+
+	UFUNCTION(BlueprintPure, Category = "GAS Lesson 2|Editor")
+	static bool HasAssetTag(const UGameplayEffect* GameplayEffect, FGameplayTag AssetTag);
+
+	/** 配置 Remove Other Effects Component，使该 GE 清除带指定 Asset Tag 的持续效果。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureRemoveEffectsWithAssetTags(UGameplayEffect* GameplayEffect, const FGameplayTagContainer& AssetTags);
+
+	/** 配置 Immunity Component，使该持续 GE 阻止带指定 Asset Tag 的新效果。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureImmunityToAssetTags(UGameplayEffect* GameplayEffect, const FGameplayTagContainer& AssetTags);
+
+	UFUNCTION(BlueprintPure, Category = "GAS Lesson 2|Editor")
+	static bool HasRemoveEffectsQueryForAssetTag(const UGameplayEffect* GameplayEffect, FGameplayTag AssetTag);
+
+	UFUNCTION(BlueprintPure, Category = "GAS Lesson 2|Editor")
+	static bool HasImmunityQueryForAssetTag(const UGameplayEffect* GameplayEffect, FGameplayTag AssetTag);
+
+	/** 把 Health Modifier 配置为目标 MaxHealth 的 25%。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureAttributeBasedHealModifier(UGameplayEffect* GameplayEffect);
+
+	/** 把 Health Modifier 配置为 UGASLesson2AttackHealMMC 的返回值。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureMMCHealModifier(UGameplayEffect* GameplayEffect);
+
+	/** 添加 UGASLesson2DamageExecution，并清空普通 Modifiers。 */
+	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
+	static void ConfigureDamageExecution(UGameplayEffect* GameplayEffect);
+
 	/** 写入 F2 案例使用的 Level 1/2/3 伤害曲线。 */
 	UFUNCTION(BlueprintCallable, Category = "GAS Lesson 2|Editor")
 	static void ConfigureLevelDamageCurve(UCurveTable* CurveTable);

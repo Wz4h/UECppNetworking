@@ -30,11 +30,18 @@ namespace GASLesson2
 	constexpr int32 ApplyOiledIndex = 12;
 	constexpr int32 BurningRequiresOilIndex = 13;
 	constexpr int32 DamageAimedTargetIndex = 14;
-	constexpr int32 MaxTestIndex = 14;
+	constexpr int32 AttributeBasedHealIndex = 15;
+	constexpr int32 MMCHealIndex = 16;
+	constexpr int32 ExecutionDamageAimedTargetIndex = 17;
+	constexpr int32 CleanseIndex = 18;
+	constexpr int32 DamageImmunityIndex = 19;
+	constexpr int32 MaxTestIndex = 19;
 
 	const FName DynamicDamageTagName(TEXT("Data.Damage"));
 	const FName DemoEffectTagName(TEXT("Demo.Effect"));
 	const FName OiledTagName(TEXT("State.Oiled"));
+	const FName BaseDamageTagName(TEXT("Data.BaseDamage"));
+	const FName DamageImmuneTagName(TEXT("State.DamageImmune"));
 }
 
 AGASLesson2Character::AGASLesson2Character()
@@ -104,6 +111,11 @@ void AGASLesson2Character::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	PlayerInputComponent->BindKey(EKeys::F3, IE_Pressed, this, &ThisClass::TestApplyOiled);
 	PlayerInputComponent->BindKey(EKeys::F4, IE_Pressed, this, &ThisClass::TestBurningRequiresOil);
 	PlayerInputComponent->BindKey(EKeys::F5, IE_Pressed, this, &ThisClass::TestDamageAimedTarget);
+	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &ThisClass::TestAttributeBasedHeal);
+	PlayerInputComponent->BindKey(EKeys::W, IE_Pressed, this, &ThisClass::TestMMCHeal);
+	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &ThisClass::TestExecutionDamageAimedTarget);
+	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &ThisClass::TestCleanse);
+	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &ThisClass::TestDamageImmunity);
 }
 
 UAbilitySystemComponent* AGASLesson2Character::GetAbilitySystemComponent() const
@@ -128,54 +140,94 @@ void AGASLesson2Character::BindAttributeDelegates()
 
 	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGASLesson2AttributeSet::GetHealthAttribute()).AddUObject(this, &ThisClass::OnHealthChanged);
 	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGASLesson2AttributeSet::GetAttackAttribute()).AddUObject(this, &ThisClass::OnAttackChanged);
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGASLesson2AttributeSet::GetDefenseAttribute()).AddUObject(this, &ThisClass::OnDefenseChanged);
 }
 
-FActiveGameplayEffectHandle AGASLesson2Character::ApplyEffectToSelf(TSubclassOf<UGameplayEffect> EffectClass, float Level)
+FActiveGameplayEffectHandle AGASLesson2Character::ApplyEffectToSelf(
+	TSubclassOf<UGameplayEffect> EffectClass,
+	float EffectLevel)
 {
+	// 第一步：ASC 负责创建和应用 GE，EffectClass 则提供 GE 的配置模板。
+	// 任何一个不存在，都无法继续创建本次 GameplayEffectSpec。
 	if (!AbilitySystemComponent || !EffectClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[GAS] EffectClass is not configured."));
+		UE_LOG(LogTemp, Error, TEXT("[GAS] ASC or EffectClass is not configured."));
 		return {};
 	}
 
-	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
-	Context.AddSourceObject(this);
+	// 第二步：创建本次效果的 Context，也就是“这次效果从哪里来”。
+	// MakeEffectContext 会根据 ASC 的 ActorInfo 自动记录 OwnerActor 和 AvatarActor。
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
 
-	FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, Level, Context);
-	if (!SpecHandle.IsValid())
+	// SourceObject 是与本次效果关联的来源对象。
+	// 本课没有单独的武器或技能对象，所以使用 Character 自己。
+	EffectContext.AddSourceObject(this);
+
+	// 第三步：由 GE 模板、GE 等级和 Context 创建本次执行使用的 Spec。
+	// EffectLevel 可被 ScalableFloat、MMC 等数值计算使用。
+	FGameplayEffectSpecHandle EffectSpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
+		EffectClass,
+		EffectLevel,
+		EffectContext);
+	if (!EffectSpecHandle.IsValid())
 	{
 		UE_LOG(LogTemp, Error, TEXT("[GAS] Failed to create GameplayEffectSpec: %s"), *GetNameSafe(EffectClass.Get()));
 		return {};
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[GAS] Create GameplayEffectSpec: %s"), *GetNameSafe(EffectClass.Get()));
+	UE_LOG(LogTemp, Warning, TEXT("[GAS] Create GameplayEffectSpec: %s, Level: %.1f"),
+		*GetNameSafe(EffectClass.Get()), EffectLevel);
 	UE_LOG(LogTemp, Warning, TEXT("[GAS] Apply GameplayEffectSpec"));
-	return AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+
+	// 第四步：Handle 中的 Data 才是真正的 FGameplayEffectSpec。
+	// ApplyGameplayEffectSpecToSelf 会把这份 Spec 应用给当前 ASC 自己。
+	// Duration/Infinite GE 可返回用于查询或移除的 ActiveGameplayEffectHandle；
+	// Instant GE 执行后立即结束，不会作为持续效果保存在 ASC 中。
+	const FGameplayEffectSpec& EffectSpec = *EffectSpecHandle.Data.Get();
+	return AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(EffectSpec);
 }
 
 FActiveGameplayEffectHandle AGASLesson2Character::ApplyEffectToTarget(
 	TSubclassOf<UGameplayEffect> EffectClass,
 	UAbilitySystemComponent* TargetAbilitySystem,
-	float Level)
+	float EffectLevel)
 {
+	// AbilitySystemComponent 是来源 ASC，负责创建这次效果；
+	// TargetAbilitySystem 是目标 ASC，负责接收这次效果。
+	// GE 模板、来源 ASC 或目标 ASC 缺少任何一个，都不能完成应用。
 	if (!AbilitySystemComponent || !TargetAbilitySystem || !EffectClass)
 	{
 		UE_LOG(LogTemp, Error, TEXT("[GAS] Target Effect, source ASC, or target ASC is not configured."));
 		return {};
 	}
 
-	FGameplayEffectContextHandle Context = AbilitySystemComponent->MakeEffectContext();
-	Context.AddSourceObject(this);
-	FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, Level, Context);
-	if (!SpecHandle.IsValid())
+	// 第一步：由来源 ASC 创建 Context。
+	// Context 记录“是谁发起了这次效果”，而不是记录效果要应用给谁。
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+
+	// 本课没有单独的武器或技能对象，因此把来源 Character 记录为 SourceObject。
+	EffectContext.AddSourceObject(this);
+
+	// 第二步：仍然由来源 ASC 创建 Spec。
+	// EffectLevel、Context 以及后续的 SetByCaller 数据都属于这一次 Spec。
+	FGameplayEffectSpecHandle EffectSpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
+		EffectClass,
+		EffectLevel,
+		EffectContext);
+	if (!EffectSpecHandle.IsValid())
 	{
 		UE_LOG(LogTemp, Error, TEXT("[GAS] Failed to create target GameplayEffectSpec: %s"), *GetNameSafe(EffectClass.Get()));
 		return {};
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[GAS] Apply %s from %s to %s"),
-		*GetNameSafe(EffectClass.Get()), *GetName(), *GetNameSafe(TargetAbilitySystem->GetAvatarActor()));
-	return AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetAbilitySystem);
+	UE_LOG(LogTemp, Warning, TEXT("[GAS] Apply %s (Level %.1f) from %s to %s"),
+		*GetNameSafe(EffectClass.Get()), EffectLevel, *GetName(), *GetNameSafe(TargetAbilitySystem->GetAvatarActor()));
+
+	// 第三步：从 Handle 中取得真正的 Spec，并通过来源 ASC 应用给目标 ASC。
+	// 与 ApplyGameplayEffectSpecToSelf 的核心区别只有目标：
+	// ToSelf 使用自己的 ASC，ToTarget 使用传入的 TargetAbilitySystem。
+	const FGameplayEffectSpec& EffectSpec = *EffectSpecHandle.Data.Get();
+	return AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(EffectSpec, TargetAbilitySystem);
 }
 
 void AGASLesson2Character::ApplyDynamicDamage(float Damage)
@@ -211,44 +263,100 @@ void AGASLesson2Character::ApplyDynamicDamage(float Damage)
 	AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
 }
 
-void AGASLesson2Character::ApplyDamageToAimedTarget()
+bool AGASLesson2Character::FindAimedTarget(
+	FHitResult& OutHitResult,
+	UAbilitySystemComponent*& OutTargetAbilitySystem) const
 {
+	OutHitResult = {};
+	OutTargetAbilitySystem = nullptr;
+
 	if (!HasAuthority() || !GetWorld())
 	{
-		return;
+		return false;
 	}
 
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	GetActorEyesViewPoint(ViewLocation, ViewRotation);
 
-	FHitResult HitResult;
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(GASLesson2TargetTrace), true, this);
 	const FVector TraceEnd = ViewLocation + ViewRotation.Vector() * TargetEffectRange;
-	if (!GetWorld()->LineTraceSingleByChannel(HitResult, ViewLocation, TraceEnd, ECC_Visibility, QueryParams))
+	if (!GetWorld()->LineTraceSingleByChannel(OutHitResult, ViewLocation, TraceEnd, ECC_Visibility, QueryParams))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 found no target within %.0f units."), TargetEffectRange);
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] No aimed target found within %.0f units."), TargetEffectRange);
+		return false;
 	}
 
-	AActor* TargetActor = HitResult.GetActor();
+	AActor* TargetActor = OutHitResult.GetActor();
 	if (!TargetActor || TargetActor == this || FVector::DistSquared(GetActorLocation(), TargetActor->GetActorLocation()) > FMath::Square(TargetEffectRange))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 target is invalid or out of range."));
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] Aimed target is invalid or out of range."));
+		return false;
 	}
 
 	IAbilitySystemInterface* TargetAbilitySystemInterface = Cast<IAbilitySystemInterface>(TargetActor);
-	UAbilitySystemComponent* TargetAbilitySystem = TargetAbilitySystemInterface
+	OutTargetAbilitySystem = TargetAbilitySystemInterface
 		? TargetAbilitySystemInterface->GetAbilitySystemComponent()
 		: nullptr;
-	if (!TargetAbilitySystem)
+	if (!OutTargetAbilitySystem)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GAS] F5 target %s has no AbilitySystemComponent."), *GetNameSafe(TargetActor));
+		UE_LOG(LogTemp, Warning, TEXT("[GAS] Aimed target %s has no AbilitySystemComponent."), *GetNameSafe(TargetActor));
+		return false;
+	}
+
+	return true;
+}
+
+void AGASLesson2Character::ApplyDamageToAimedTarget()
+{
+	FHitResult HitResult;
+	UAbilitySystemComponent* TargetAbilitySystem = nullptr;
+	if (FindAimedTarget(HitResult, TargetAbilitySystem))
+	{
+		ApplyEffectToTarget(DamageEffect, TargetAbilitySystem);
+	}
+}
+
+void AGASLesson2Character::ApplyExecutionDamageToAimedTarget()
+{
+	if (!AbilitySystemComponent || !ExecutionDamageEffect)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[GAS] ExecutionDamageEffect is not configured."));
 		return;
 	}
 
-	ApplyEffectToTarget(DamageEffect, TargetAbilitySystem);
+	FHitResult HitResult;
+	UAbilitySystemComponent* TargetAbilitySystem = nullptr;
+	if (!FindAimedTarget(HitResult, TargetAbilitySystem))
+	{
+		return;
+	}
+
+	const FGameplayTag BaseDamageTag = FGameplayTag::RequestGameplayTag(GASLesson2::BaseDamageTagName, false);
+	if (!BaseDamageTag.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[GAS] GameplayTag Data.BaseDamage is not registered."));
+		return;
+	}
+
+	// Context 保存来源与命中信息；Execution 或 GameplayCue 可以从 Spec 中取回它们。
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+	EffectContext.AddSourceObject(this);
+	EffectContext.AddHitResult(HitResult);
+
+	FGameplayEffectSpecHandle EffectSpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
+		ExecutionDamageEffect,
+		1.f,
+		EffectContext);
+	if (!EffectSpecHandle.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[GAS] Failed to create Execution damage Spec."));
+		return;
+	}
+
+	// BaseDamage 是这次攻击的动态输入；Attack 和 Defense 则由 Execution 自己捕获。
+	EffectSpecHandle.Data->SetSetByCallerMagnitude(BaseDamageTag, FMath::Max(ExecutionBaseDamage, 0.f));
+	AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*EffectSpecHandle.Data.Get(), TargetAbilitySystem);
 }
 
 void AGASLesson2Character::RemoveWeaponEffect()
@@ -301,9 +409,10 @@ void AGASLesson2Character::PrintAttributes() const
 	UE_LOG(LogTemp, Warning, TEXT("Health     BaseValue: %.2f  CurrentValue: %.2f"), AttributeSet->Health.GetBaseValue(), AttributeSet->Health.GetCurrentValue());
 	UE_LOG(LogTemp, Warning, TEXT("MaxHealth  BaseValue: %.2f  CurrentValue: %.2f"), AttributeSet->MaxHealth.GetBaseValue(), AttributeSet->MaxHealth.GetCurrentValue());
 	UE_LOG(LogTemp, Warning, TEXT("Attack     BaseValue: %.2f  CurrentValue: %.2f"), AttributeSet->Attack.GetBaseValue(), AttributeSet->Attack.GetCurrentValue());
+	UE_LOG(LogTemp, Warning, TEXT("Defense    BaseValue: %.2f  CurrentValue: %.2f"), AttributeSet->Defense.GetBaseValue(), AttributeSet->Defense.GetCurrentValue());
 	UE_LOG(LogTemp, Warning, TEXT("===================================="));
 
-	ShowDebugMessage(FString::Printf(TEXT("Health %.0f / %.0f | Attack %.0f"), AttributeSet->GetHealth(), AttributeSet->GetMaxHealth(), AttributeSet->GetAttack()), FColor::Green);
+	ShowDebugMessage(FString::Printf(TEXT("Health %.0f / %.0f | Attack %.0f | Defense %.0f"), AttributeSet->GetHealth(), AttributeSet->GetMaxHealth(), AttributeSet->GetAttack(), AttributeSet->GetDefense()), FColor::Green);
 }
 
 void AGASLesson2Character::OnHealthChanged(const FOnAttributeChangeData& Data)
@@ -316,6 +425,12 @@ void AGASLesson2Character::OnAttackChanged(const FOnAttributeChangeData& Data)
 {
 	UE_LOG(LogTemp, Warning, TEXT("[GAS] Attack: %.2f -> %.2f"), Data.OldValue, Data.NewValue);
 	ShowDebugMessage(FString::Printf(TEXT("Attack: %.0f -> %.0f"), Data.OldValue, Data.NewValue), FColor::Yellow);
+}
+
+void AGASLesson2Character::OnDefenseChanged(const FOnAttributeChangeData& Data)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[GAS] Defense: %.2f -> %.2f"), Data.OldValue, Data.NewValue);
+	ShowDebugMessage(FString::Printf(TEXT("Defense: %.0f -> %.0f"), Data.OldValue, Data.NewValue), FColor::Silver);
 }
 
 void AGASLesson2Character::RequestTest(int32 TestIndex)
@@ -421,6 +536,31 @@ void AGASLesson2Character::ExecuteTest(int32 TestIndex)
 	case GASLesson2::DamageAimedTargetIndex:
 		ApplyDamageToAimedTarget();
 		break;
+	case GASLesson2::AttributeBasedHealIndex:
+		ApplyEffectToSelf(AttributeBasedHealEffect);
+		break;
+	case GASLesson2::MMCHealIndex:
+		ApplyEffectToSelf(MMCHealEffect);
+		break;
+	case GASLesson2::ExecutionDamageAimedTargetIndex:
+		ApplyExecutionDamageToAimedTarget();
+		break;
+	case GASLesson2::CleanseIndex:
+		ApplyEffectToSelf(CleanseEffect);
+		break;
+	case GASLesson2::DamageImmunityIndex:
+		{
+			const FGameplayTag DamageImmuneTag = FGameplayTag::RequestGameplayTag(GASLesson2::DamageImmuneTagName, false);
+			if (DamageImmuneTag.IsValid() && AbilitySystemComponent->HasMatchingGameplayTag(DamageImmuneTag))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[GAS] Damage immunity is already active. Press 0 to clear it."));
+			}
+			else
+			{
+				ApplyEffectToSelf(DamageImmunityEffect);
+			}
+		}
+		break;
 	default:
 		break;
 	}
@@ -449,6 +589,11 @@ void AGASLesson2Character::TestLevelDamage() { RequestTest(GASLesson2::LevelDama
 void AGASLesson2Character::TestApplyOiled() { RequestTest(GASLesson2::ApplyOiledIndex); }
 void AGASLesson2Character::TestBurningRequiresOil() { RequestTest(GASLesson2::BurningRequiresOilIndex); }
 void AGASLesson2Character::TestDamageAimedTarget() { RequestTest(GASLesson2::DamageAimedTargetIndex); }
+void AGASLesson2Character::TestAttributeBasedHeal() { RequestTest(GASLesson2::AttributeBasedHealIndex); }
+void AGASLesson2Character::TestMMCHeal() { RequestTest(GASLesson2::MMCHealIndex); }
+void AGASLesson2Character::TestExecutionDamageAimedTarget() { RequestTest(GASLesson2::ExecutionDamageAimedTargetIndex); }
+void AGASLesson2Character::TestCleanse() { RequestTest(GASLesson2::CleanseIndex); }
+void AGASLesson2Character::TestDamageImmunity() { RequestTest(GASLesson2::DamageImmunityIndex); }
 
 void AGASLesson2Character::ServerApplyTestEffect_Implementation(int32 TestIndex)
 {

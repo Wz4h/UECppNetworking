@@ -127,6 +127,30 @@ def add_application_requirements_component(effect_cdo, tag_names):
         )
 
 
+def add_asset_tags_component(effect_cdo, tag_names):
+    if tag_names:
+        unreal.GASLesson2EffectLibrary.configure_asset_tags(
+            effect_cdo,
+            make_gameplay_tags(tag_names),
+        )
+
+
+def add_remove_effects_component(effect_cdo, tag_names):
+    if tag_names:
+        unreal.GASLesson2EffectLibrary.configure_remove_effects_with_asset_tags(
+            effect_cdo,
+            make_gameplay_tags(tag_names),
+        )
+
+
+def add_immunity_component(effect_cdo, tag_names):
+    if tag_names:
+        unreal.GASLesson2EffectLibrary.configure_immunity_to_asset_tags(
+            effect_cdo,
+            make_gameplay_tags(tag_names),
+        )
+
+
 def set_scalable_float_property(target, property_name, value):
     scalable_float = target.get_editor_property(property_name)
     scalable_float.set_editor_property("value", float(value))
@@ -143,8 +167,12 @@ def configure_effect(
     set_by_caller_tag=None,
     granted_tags=None,
     application_required_tags=None,
+    asset_tags=None,
+    remove_effect_asset_tags=None,
+    immunity_asset_tags=None,
     modifier_op="AddBase",
     level_curve=None,
+    calculation_type=None,
     stacking=False,
 ):
     blueprint = create_or_load_blueprint(asset_name, EFFECT_PATH, unreal.GameplayEffect.static_class())
@@ -153,7 +181,13 @@ def configure_effect(
 
     effect_cdo.set_editor_property("duration_policy", duration_policy)
     effect_cdo.set_editor_property("ge_components", [])
-    if level_curve is not None:
+    if calculation_type == "AttributeBasedHeal":
+        unreal.GASLesson2EffectLibrary.configure_attribute_based_heal_modifier(effect_cdo)
+    elif calculation_type == "MMCHeal":
+        unreal.GASLesson2EffectLibrary.configure_mmc_heal_modifier(effect_cdo)
+    elif calculation_type == "DamageExecution":
+        unreal.GASLesson2EffectLibrary.configure_damage_execution(effect_cdo)
+    elif level_curve is not None:
         unreal.GASLesson2EffectLibrary.configure_level_damage_modifier(effect_cdo, level_curve)
     elif attribute_name is not None:
         effect_cdo.set_editor_property(
@@ -183,6 +217,9 @@ def configure_effect(
 
     add_target_tags_component(effect_cdo, granted_tags or [])
     add_application_requirements_component(effect_cdo, application_required_tags or [])
+    add_asset_tags_component(effect_cdo, asset_tags or [])
+    add_remove_effects_component(effect_cdo, remove_effect_asset_tags or [])
+    add_immunity_component(effect_cdo, immunity_asset_tags or [])
     blueprint.modify()
     require(unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False), f"Failed to save {asset_name}")
     log(f"Configured {asset_name}")
@@ -205,6 +242,11 @@ def set_character_effect_defaults(character_blueprint, effects):
         "level_damage_effect": "GE_LevelDamage",
         "oiled_effect": "GE_Oiled",
         "burning_requires_oil_effect": "GE_BurningRequiresOil",
+        "attribute_based_heal_effect": "GE_AttributeBasedHeal",
+        "mmc_heal_effect": "GE_MMCHeal",
+        "execution_damage_effect": "GE_ExecutionDamage",
+        "cleanse_effect": "GE_Cleanse",
+        "damage_immunity_effect": "GE_DamageImmunity",
     }
     for property_name, effect_name in property_map.items():
         character_cdo.set_editor_property(property_name, effects[effect_name].generated_class())
@@ -233,6 +275,11 @@ def verify_effect(
     expected_set_by_caller_tag=None,
     expected_granted_tags=None,
     expected_application_required_tags=None,
+    expected_asset_tags=None,
+    expected_remove_effect_asset_tags=None,
+    expected_immunity_asset_tags=None,
+    expected_calculation_text=None,
+    expected_execution_class=None,
     expected_modifier_op=None,
     expected_modifier_count=1,
     expected_stack_limit=0,
@@ -263,6 +310,15 @@ def verify_effect(
         )
     if expected_modifier_op is not None:
         require(f"ModifierOp={expected_modifier_op}" in modifier_text, f"{asset_name} modifier op mismatch")
+    if expected_calculation_text is not None:
+        require(expected_calculation_text in modifier_text, f"{asset_name} calculation mismatch: {modifier_text}")
+
+    executions = effect_cdo.get_editor_property("executions")
+    if expected_execution_class is not None:
+        require(len(executions) == 1, f"{asset_name} execution count mismatch")
+        require(expected_execution_class in executions[0].export_text(), f"{asset_name} execution class mismatch")
+    else:
+        require(len(executions) == 0, f"{asset_name} has unexpected executions")
 
     period = effect_cdo.get_editor_property("period").get_editor_property("value")
     require(abs(period - expected_period) < 0.001, f"{asset_name} period mismatch: {period}")
@@ -290,6 +346,27 @@ def verify_effect(
         require(
             unreal.GASLesson2EffectLibrary.has_application_required_tag(effect_cdo, tag),
             f"{asset_name} missing application required tag {tag_name}",
+        )
+    for tag_name in expected_asset_tags or []:
+        tag = unreal.GameplayTag()
+        tag.import_text(f'(TagName="{tag_name}")')
+        require(
+            unreal.GASLesson2EffectLibrary.has_asset_tag(effect_cdo, tag),
+            f"{asset_name} missing asset tag {tag_name}",
+        )
+    for tag_name in expected_remove_effect_asset_tags or []:
+        tag = unreal.GameplayTag()
+        tag.import_text(f'(TagName="{tag_name}")')
+        require(
+            unreal.GASLesson2EffectLibrary.has_remove_effects_query_for_asset_tag(effect_cdo, tag),
+            f"{asset_name} missing remove query for {tag_name}",
+        )
+    for tag_name in expected_immunity_asset_tags or []:
+        tag = unreal.GameplayTag()
+        tag.import_text(f'(TagName="{tag_name}")')
+        require(
+            unreal.GASLesson2EffectLibrary.has_immunity_query_for_asset_tag(effect_cdo, tag),
+            f"{asset_name} missing immunity query for {tag_name}",
         )
     log(f"Verified {asset_name}")
 
@@ -319,6 +396,11 @@ def verify_blueprint_defaults(effects):
         "level_damage_effect": "GE_LevelDamage",
         "oiled_effect": "GE_Oiled",
         "burning_requires_oil_effect": "GE_BurningRequiresOil",
+        "attribute_based_heal_effect": "GE_AttributeBasedHeal",
+        "mmc_heal_effect": "GE_MMCHeal",
+        "execution_damage_effect": "GE_ExecutionDamage",
+        "cleanse_effect": "GE_Cleanse",
+        "damage_immunity_effect": "GE_DamageImmunity",
     }
     character_cdo = get_blueprint_cdo(character_blueprint)
     for property_name, effect_name in property_map.items():
@@ -342,7 +424,8 @@ def main():
     level_damage_curve = create_or_load_level_damage_curve()
     effects = {
         "GE_Damage": configure_effect(
-            "GE_Damage", unreal.GameplayEffectDurationType.INSTANT, "Health", magnitude=-20.0
+            "GE_Damage", unreal.GameplayEffectDurationType.INSTANT, "Health", magnitude=-20.0,
+            asset_tags=["Effect.Type.Damage"]
         ),
         "GE_Heal": configure_effect(
             "GE_Heal", unreal.GameplayEffectDurationType.INSTANT, "Health", magnitude=20.0
@@ -367,6 +450,7 @@ def main():
             unreal.GameplayEffectDurationType.INSTANT,
             "Health",
             set_by_caller_tag="Data.Damage",
+            asset_tags=["Effect.Type.Damage"],
         ),
         "GE_Poison": configure_effect(
             "GE_Poison",
@@ -376,6 +460,7 @@ def main():
             duration=10.0,
             period=1.0,
             granted_tags=["Demo.Effect", "Demo.Effect.Poison"],
+            asset_tags=["Effect.Type.Damage", "Effect.Type.Debuff", "Effect.Type.Debuff.Poison"],
         ),
         "GE_StackAttack": configure_effect(
             "GE_StackAttack",
@@ -400,6 +485,7 @@ def main():
             unreal.GameplayEffectDurationType.INSTANT,
             "Health",
             level_curve=level_damage_curve,
+            asset_tags=["Effect.Type.Damage"],
         ),
         "GE_Oiled": configure_effect(
             "GE_Oiled",
@@ -416,6 +502,39 @@ def main():
             period=1.0,
             granted_tags=["Demo.Effect", "Demo.Effect.Burning", "State.Burning"],
             application_required_tags=["State.Oiled"],
+            asset_tags=["Effect.Type.Damage", "Effect.Type.Debuff", "Effect.Type.Debuff.Burning"],
+        ),
+        "GE_AttributeBasedHeal": configure_effect(
+            "GE_AttributeBasedHeal",
+            unreal.GameplayEffectDurationType.INSTANT,
+            "Health",
+            calculation_type="AttributeBasedHeal",
+        ),
+        "GE_MMCHeal": configure_effect(
+            "GE_MMCHeal",
+            unreal.GameplayEffectDurationType.INSTANT,
+            "Health",
+            calculation_type="MMCHeal",
+        ),
+        "GE_ExecutionDamage": configure_effect(
+            "GE_ExecutionDamage",
+            unreal.GameplayEffectDurationType.INSTANT,
+            None,
+            calculation_type="DamageExecution",
+            asset_tags=["Effect.Type.Damage"],
+        ),
+        "GE_Cleanse": configure_effect(
+            "GE_Cleanse",
+            unreal.GameplayEffectDurationType.INSTANT,
+            None,
+            remove_effect_asset_tags=["Effect.Type.Debuff"],
+        ),
+        "GE_DamageImmunity": configure_effect(
+            "GE_DamageImmunity",
+            unreal.GameplayEffectDurationType.INFINITE,
+            None,
+            granted_tags=["Demo.Effect", "Demo.Effect.DamageImmunity", "State.DamageImmune"],
+            immunity_asset_tags=["Effect.Type.Damage"],
         ),
     }
 
@@ -432,7 +551,7 @@ def main():
     set_character_effect_defaults(character_blueprint, effects)
     set_game_mode_default_pawn(game_mode_blueprint, character_blueprint)
 
-    verify_effect("GE_Damage", unreal.GameplayEffectDurationType.INSTANT, "Health", expected_magnitude=-20.0)
+    verify_effect("GE_Damage", unreal.GameplayEffectDurationType.INSTANT, "Health", expected_magnitude=-20.0, expected_asset_tags=["Effect.Type.Damage"])
     verify_effect("GE_Heal", unreal.GameplayEffectDurationType.INSTANT, "Health", expected_magnitude=20.0)
     verify_effect(
         "GE_AttackBuff",
@@ -454,6 +573,7 @@ def main():
         unreal.GameplayEffectDurationType.INSTANT,
         "Health",
         expected_set_by_caller_tag="Data.Damage",
+        expected_asset_tags=["Effect.Type.Damage"],
     )
     verify_effect(
         "GE_Poison",
@@ -463,6 +583,7 @@ def main():
         expected_duration=10.0,
         expected_period=1.0,
         expected_granted_tags=["Demo.Effect", "Demo.Effect.Poison"],
+        expected_asset_tags=["Effect.Type.Damage", "Effect.Type.Debuff", "Effect.Type.Debuff.Poison"],
     )
     verify_effect(
         "GE_StackAttack",
@@ -487,6 +608,7 @@ def main():
         unreal.GameplayEffectDurationType.INSTANT,
         "Health",
         expected_modifier_op="AddBase",
+        expected_asset_tags=["Effect.Type.Damage"],
     )
     verify_effect(
         "GE_Oiled",
@@ -504,6 +626,42 @@ def main():
         expected_period=1.0,
         expected_granted_tags=["Demo.Effect", "Demo.Effect.Burning", "State.Burning"],
         expected_application_required_tags=["State.Oiled"],
+        expected_asset_tags=["Effect.Type.Damage", "Effect.Type.Debuff", "Effect.Type.Debuff.Burning"],
+    )
+    verify_effect(
+        "GE_AttributeBasedHeal",
+        unreal.GameplayEffectDurationType.INSTANT,
+        "Health",
+        expected_calculation_text="AttributeBased",
+    )
+    verify_effect(
+        "GE_MMCHeal",
+        unreal.GameplayEffectDurationType.INSTANT,
+        "Health",
+        expected_calculation_text="GASLesson2AttackHealMMC",
+    )
+    verify_effect(
+        "GE_ExecutionDamage",
+        unreal.GameplayEffectDurationType.INSTANT,
+        None,
+        expected_modifier_count=0,
+        expected_execution_class="GASLesson2DamageExecution",
+        expected_asset_tags=["Effect.Type.Damage"],
+    )
+    verify_effect(
+        "GE_Cleanse",
+        unreal.GameplayEffectDurationType.INSTANT,
+        None,
+        expected_modifier_count=0,
+        expected_remove_effect_asset_tags=["Effect.Type.Debuff"],
+    )
+    verify_effect(
+        "GE_DamageImmunity",
+        unreal.GameplayEffectDurationType.INFINITE,
+        None,
+        expected_modifier_count=0,
+        expected_granted_tags=["Demo.Effect", "Demo.Effect.DamageImmunity", "State.DamageImmune"],
+        expected_immunity_asset_tags=["Effect.Type.Damage"],
     )
     verify_level_damage_curve(level_damage_curve)
     verify_blueprint_defaults(effects)

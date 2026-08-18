@@ -38,6 +38,19 @@ public:
 	FGameplayAttributeData Attack;
 	GASLESSON2_ATTRIBUTE_ACCESSORS(UGASLesson2AttributeSet, Attack)
 
+	/** 防御力会长期存在并用于界面显示，因此和其他常规属性一样复制。 */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Defense, Category = "GAS Lesson 2|Attribute")
+	FGameplayAttributeData Defense;
+	GASLESSON2_ATTRIBUTE_ACCESSORS(UGASLesson2AttributeSet, Defense)
+
+	/**
+	 * Damage 是 Meta Attribute：Execution 临时把最终伤害写到这里，
+	 * AttributeSet 随即扣除 Health 并清零。它不是角色状态，所以不需要复制。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "GAS Lesson 2|Meta Attribute")
+	FGameplayAttributeData Damage;
+	GASLESSON2_ATTRIBUTE_ACCESSORS(UGASLesson2AttributeSet, Damage)
+
 protected:
 	UFUNCTION()
 	void OnRep_Health(const FGameplayAttributeData& OldHealth);
@@ -47,5 +60,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_Attack(const FGameplayAttributeData& OldAttack);
-};
 
+	UFUNCTION()
+	void OnRep_Defense(const FGameplayAttributeData& OldDefense);
+};

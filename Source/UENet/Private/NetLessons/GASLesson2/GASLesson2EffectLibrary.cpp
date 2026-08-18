@@ -7,7 +7,12 @@
 #include "Engine/CurveTable.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 #include "GameplayEffectComponents/TargetTagRequirementsGameplayEffectComponent.h"
+#include "GameplayEffectComponents/AssetTagsGameplayEffectComponent.h"
+#include "GameplayEffectComponents/ImmunityGameplayEffectComponent.h"
+#include "GameplayEffectComponents/RemoveOtherGameplayEffectComponent.h"
+#include "NetLessons/GASLesson2/GASLesson2AttackHealMMC.h"
 #include "NetLessons/GASLesson2/GASLesson2AttributeSet.h"
+#include "NetLessons/GASLesson2/GASLesson2DamageExecution.h"
 
 namespace GASLesson2EffectLibrary
 {
@@ -62,6 +67,169 @@ bool UGASLesson2EffectLibrary::HasApplicationRequiredTag(
 		: nullptr;
 	return RequirementsComponent
 		&& RequirementsComponent->ApplicationTagRequirements.RequireTags.HasTagExact(RequiredTag);
+}
+
+void UGASLesson2EffectLibrary::ConfigureAssetTags(
+	UGameplayEffect* GameplayEffect,
+	const FGameplayTagContainer& AssetTags)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	GameplayEffect->Modify();
+	FInheritedTagContainer TagChanges;
+	TagChanges.Added = AssetTags;
+	TagChanges.UpdateInheritedTagProperties(nullptr);
+
+	UAssetTagsGameplayEffectComponent& AssetTagsComponent =
+		GameplayEffect->FindOrAddComponent<UAssetTagsGameplayEffectComponent>();
+	AssetTagsComponent.SetAndApplyAssetTagChanges(TagChanges);
+}
+
+bool UGASLesson2EffectLibrary::HasAssetTag(const UGameplayEffect* GameplayEffect, FGameplayTag AssetTag)
+{
+	return GameplayEffect && GameplayEffect->GetAssetTags().HasTagExact(AssetTag);
+}
+
+void UGASLesson2EffectLibrary::ConfigureRemoveEffectsWithAssetTags(
+	UGameplayEffect* GameplayEffect,
+	const FGameplayTagContainer& AssetTags)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	GameplayEffect->Modify();
+	URemoveOtherGameplayEffectComponent& RemoveComponent =
+		GameplayEffect->FindOrAddComponent<URemoveOtherGameplayEffectComponent>();
+	RemoveComponent.RemoveGameplayEffectQueries = {
+		FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags(AssetTags)
+	};
+}
+
+void UGASLesson2EffectLibrary::ConfigureImmunityToAssetTags(
+	UGameplayEffect* GameplayEffect,
+	const FGameplayTagContainer& AssetTags)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	GameplayEffect->Modify();
+	UImmunityGameplayEffectComponent& ImmunityComponent =
+		GameplayEffect->FindOrAddComponent<UImmunityGameplayEffectComponent>();
+	ImmunityComponent.ImmunityQueries = {
+		FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags(AssetTags)
+	};
+}
+
+bool UGASLesson2EffectLibrary::HasRemoveEffectsQueryForAssetTag(
+	const UGameplayEffect* GameplayEffect,
+	FGameplayTag AssetTag)
+{
+	const URemoveOtherGameplayEffectComponent* RemoveComponent = GameplayEffect
+		? GameplayEffect->FindComponent<URemoveOtherGameplayEffectComponent>()
+		: nullptr;
+	if (!RemoveComponent)
+	{
+		return false;
+	}
+
+	FGameplayTagContainer TestTags;
+	TestTags.AddTag(AssetTag);
+	for (const FGameplayEffectQuery& Query : RemoveComponent->RemoveGameplayEffectQueries)
+	{
+		if (Query.EffectTagQuery.Matches(TestTags))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool UGASLesson2EffectLibrary::HasImmunityQueryForAssetTag(
+	const UGameplayEffect* GameplayEffect,
+	FGameplayTag AssetTag)
+{
+	const UImmunityGameplayEffectComponent* ImmunityComponent = GameplayEffect
+		? GameplayEffect->FindComponent<UImmunityGameplayEffectComponent>()
+		: nullptr;
+	if (!ImmunityComponent)
+	{
+		return false;
+	}
+
+	FGameplayTagContainer TestTags;
+	TestTags.AddTag(AssetTag);
+	for (const FGameplayEffectQuery& Query : ImmunityComponent->ImmunityQueries)
+	{
+		if (Query.EffectTagQuery.Matches(TestTags))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UGASLesson2EffectLibrary::ConfigureAttributeBasedHealModifier(UGameplayEffect* GameplayEffect)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	FAttributeBasedFloat Magnitude;
+	Magnitude.BackingAttribute = FGameplayEffectAttributeCaptureDefinition(
+		UGASLesson2AttributeSet::GetMaxHealthAttribute(),
+		EGameplayEffectAttributeCaptureSource::Target,
+		false);
+	Magnitude.Coefficient = FScalableFloat(0.25f);
+
+	FGameplayModifierInfo Modifier;
+	Modifier.Attribute = UGASLesson2AttributeSet::GetHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::AddBase;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(Magnitude);
+
+	GameplayEffect->Modify();
+	GameplayEffect->Modifiers = {Modifier};
+}
+
+void UGASLesson2EffectLibrary::ConfigureMMCHealModifier(UGameplayEffect* GameplayEffect)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	FCustomCalculationBasedFloat Magnitude;
+	Magnitude.CalculationClassMagnitude = UGASLesson2AttackHealMMC::StaticClass();
+
+	FGameplayModifierInfo Modifier;
+	Modifier.Attribute = UGASLesson2AttributeSet::GetHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::AddBase;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(Magnitude);
+
+	GameplayEffect->Modify();
+	GameplayEffect->Modifiers = {Modifier};
+}
+
+void UGASLesson2EffectLibrary::ConfigureDamageExecution(UGameplayEffect* GameplayEffect)
+{
+	if (!GameplayEffect)
+	{
+		return;
+	}
+
+	FGameplayEffectExecutionDefinition Execution;
+	Execution.CalculationClass = UGASLesson2DamageExecution::StaticClass();
+
+	GameplayEffect->Modify();
+	GameplayEffect->Modifiers.Reset();
+	GameplayEffect->Executions = {Execution};
 }
 
 void UGASLesson2EffectLibrary::ConfigureLevelDamageCurve(UCurveTable* CurveTable)
