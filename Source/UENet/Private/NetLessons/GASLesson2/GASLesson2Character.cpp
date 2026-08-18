@@ -71,6 +71,8 @@ AGASLesson2Character::AGASLesson2Character()
 	DemoMesh->SetRelativeScale3D(FVector(0.8f, 0.8f, 1.8f));
 	DemoMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	DemoMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+	// E/F5 的服务器射线使用 Visibility；只开放这一项，避免教学角色参与其他碰撞。
+	DemoMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMesh.Succeeded())
