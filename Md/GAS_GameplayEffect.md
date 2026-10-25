@@ -2,7 +2,7 @@
 
 > **适用范围**：UE 5.6 / 5.7 的常见 GE 详情面板；适合初学者系统学习，也适合已有 GAS 基础的开发者快速查阅。不同小版本的显示名称、条件显示规则可能略有差别。
 >
-> **阅读路线**：整体认识 → 生命周期和周期 → Modifiers → Components → Gameplay Cues → Stacking → 综合案例 → C++ → 速查表与常见错误。
+> **阅读路线**：认识 GE → Duration（讲解+例子+出现条件）→ Period（讲解+例子+出现条件）→ Modifiers（讲解+四类实例+C++）→ Components（逐组件实例）→ Gameplay Cues（讲解+实例）→ Stacking（讲解+实例）→ 综合实战 → 查阅附录。
 >
 > 本文用 `Attack`、`Health`、`Intelligence`、`MoveSpeed` 演示，假定这些 Attribute 已经定义在自己的 AttributeSet 中。`State.*`、`Effect.*`、`Ability.*`、`GameplayCue.*`、`Data.*` 都是**示例 Gameplay Tag，需先在项目中注册**。
 
@@ -52,6 +52,21 @@ GA / 游戏逻辑
 
 ## 2. Duration Policy：GE 的生命周期
 
+### 2.0 编辑器字段何时出现（先选选项，再找字段）
+
+| 先设置什么 | 会看到/可配置什么 | 不会看到/不适用什么 |
+|---|---|---|
+| `Duration Policy = Instant` | Instant 效果配置、Modifiers | `Duration Magnitude`；`Period` 与周期附加选项不适用 |
+| `Duration Policy = Has Duration` | **Duration Magnitude**，其下的数值计算类型与对应子字段；可设置 `Period` | — |
+| `Duration Policy = Infinite` | `Period` 可用，可保持 `Period=0` | 不需要 `Duration Magnitude`，没有自然到期时间 |
+| `Duration Magnitude → Magnitude Calculation Type = Scalable Float` | `Scalable Float Magnitude`、Curve Table 行/曲线配置 | 另外三类计算字段 |
+| `... = Attribute Based` | `Backing Attribute`、Source/Target 捕获、系数/前后加值、Snapshot 等 | Scalable Float 数值输入项 |
+| `... = Custom Calculation Class` | MMC 计算类选择等 | Attribute Based 的手动公式字段 |
+| `... = Set by Caller` | Data Tag/Data Name 等动态数据键配置 | 固定值输入项 |
+
+> **怎么验证**：先将 `Duration Policy` 从 `Instant` 改成 `Has Duration`，再观察 `Duration Magnitude` 是否出现；将计算类型依次切换四次，截图对比子字段。不同 UE 小版本的字段名称和隐藏策略可能不同，请以实际详情面板为准。
+
+
 | Duration Policy | 含义 | 常见例子 |
 |---|---|---|
 | `Instant` | 立即执行并结束，不形成有持续时间的活动 GE | 一次扣血、一次回血 |
@@ -81,11 +96,33 @@ Attribute 常见地维护 **Base Value（基础值）** 与 **Current Value（�
 
 例如 5 秒控制、按抗性计算持续时间、技能等级越高持续越久。**这里的结果单位是秒，而不是攻击力或伤害。**
 
+### 2.3 学完 Duration 立即动手：三个对照案例
+
+| 案例 | GE 基本配置 | 观察结果 |
+|---|---|---|
+| 直接治疗 | `Instant`，Health Add +50 | 立刻提高血量，没有持续计时器 |
+| 十秒攻击 Buff | `Has Duration`，Magnitude=10，`Period=0`，Attack Add +50 | 10 秒内 Attack Current 增加，结束撤销 |
+| 装备被动 | `Infinite`，`Period=0`，Attack Add +20 | 一直有效，卸下装备时主动移除 |
+
+讲解时强调：`Infinite` 是“不自行按时间结束”，不是无条件不能被净化或移除；`Instant` 不要写成“Duration=0”。
+
 ---
 
 ## 3. Period：周期执行
 
 **Duration 管存在多久，Period 管多久执行一次。**
+
+### 3.0 编辑器字段开启条件
+
+| 前置配置 | 展开/显示的字段 | 说明 |
+|---|---|---|
+| `Duration Policy = Instant` | 周期相关字段不适用 | 先改成 `Has Duration` 或 `Infinite` |
+| `Duration Policy = Has Duration / Infinite` | `Period` | 可填 0，也可配置非零周期 |
+| **`Period` 从 `0` 改为大于 `0`** | `Execute Periodic Effect on Application`、`Periodic Inhibition Policy` | 这正是此前截图中看不到额外字段的原因；输入后按 Enter 刷新详情 |
+| `Period > 0` 且选 `Never Reset / Reset Period / Execute and Reset Period` | 不同抑制恢复行为 | 仅对发生过抑制、之后解除抑制的周期效果有意义 |
+
+> **注意**：`Period=0` 代表非周期 GE；即使编辑器某版本通过高级显示暴露了其他选项，也不要理解成会产生周期事件。
+
 
 | Duration | Period | 结果 |
 |---|---|---|
@@ -120,6 +157,14 @@ UE 编辑器通常在 Period 设置为大于 0 后显示此项。不要把“5 �
 例：每 2 秒回血，在第 3 秒受到 `State.NoHealing` 限制，第 5.5 秒解除。三种策略分别对应继续原节奏、从 5.5 秒开始重新等 2 秒、或者 5.5 秒立即回血并重新计时。
 
 **抑制 ≠ 移除**：GE 可以还在 ASC 内，其持续时间可能继续流逝，但某些作用暂不生效。
+
+---
+
+### 3.4 学完 Period 立即动手：两个对照实验
+
+**实验 A，回血光环**：`Has Duration=6`，`Period=2`，Health Add +10；比较 `Execute Periodic Effect on Application` 关闭/开启，记录第一跳是否在应用时执行。
+
+**实验 B，抑制恢复**：持续回复 GE 的 `Ongoing Tag Requirements` 只允许具有 `State.CanHeal` 的目标生效；中途移除该 Tag，再恢复，比较 `Never Reset`、`Reset Period`、`Execute and Reset Period` 对下次执行时机的影响。`Ongoing Tag Requirements` 位于 **Components → Require Tags to Apply/Continue This Effect**，不是 Period 面板里。
 
 ---
 
@@ -223,6 +268,50 @@ Set by Caller 的**Tag 必须与 GE 中配置一致**，并且要在应用 Spec 
 
 ---
 
+### 4.4 Modifier 字段开启条件（逐级展开）
+
+| 第一步选项 | 后续出现的字段 | 示例 |
+|---|---|---|
+| `Modifiers` 点击 `+` 添加条目 | `Attribute`、`Modifier Op`、`Modifier Magnitude`、`Source Tags`、`Target Tags` | Attack 加成 |
+| `Modifier Magnitude → Magnitude Calculation Type = Scalable Float` | `Scalable Float Magnitude`、Curve Table 等 | 固定 +50 |
+| `... = Attribute Based` | `Backing Attribute`、`Attribute Source`、`Snapshot`、`Coefficient`、`Pre Multiply Additive Value`、`Post Multiply Additive Value`、属性计算策略等 | Intelligence ×0.5 |
+| `... = Custom Calculation Class` | `Calculation Class`、对应 MMC 配置字段 | 复杂计算 |
+| `... = Set by Caller` | Data Tag（或 Data Name） | GA 传入 -150 |
+| 展开 `Source Tags` / `Target Tags` | `Must Have Tags`、`Must Not Have Tags`、`Query Must Match` | 有狂暴状态才加成 |
+
+**这里的 Source / Target 是条件判断，不是添加标签的地方。** GE 自身分类与授予角色标签要到 Components 下配置。`Modifier Op` 改为 `Add / Multiply / Divide / Override` 不会改变 Magnitude 的四种来源，只改变计算结果如何参与聚合。
+
+### 4.5 同模块 C++ 速查（对应上面的四个案例）
+
+```cpp
+// 前提：SourceASC / TargetASC 有效；GEClass 是已配置的 GE 蓝图类。
+FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(
+    GEClass, 2.0f, SourceASC->MakeEffectContext());
+if (Spec.IsValid())
+{
+    // Scalable Float：2.0f 表示 GE Level；值由 GE 配置/曲线决定。
+    // Attribute Based：无需额外传属性，GAS 按捕获规则读取。
+    // MMC：无需手动调用，GAS 用 GE 中指定的计算类计算。
+    SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
+}
+```
+
+```cpp
+// Set by Caller：在应用之前写入本次效果的动态数值。
+FGameplayEffectSpecHandle DamageSpec = SourceASC->MakeOutgoingSpec(
+    DamageGEClass, 1.f, SourceASC->MakeEffectContext());
+if (DamageSpec.IsValid())
+{
+    const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Data.Damage"));
+    DamageSpec.Data->SetSetByCallerMagnitude(Tag, -150.f);
+    SourceASC->ApplyGameplayEffectSpecToTarget(*DamageSpec.Data.Get(), TargetASC);
+}
+```
+
+`Custom Calculation Class` 的 **MMC .h/.cpp 完整实现** 紧接在后面的“代码参考附录”保留，避免第一次阅读时被长代码打断。
+
+---
+
 ## 5. Components：GE 的额外行为规则
 
 在详情面板中：`Components → + → 选择 Component`。你所使用版本的下拉框中有以下 **11 类组件**（不含 None）。
@@ -279,7 +368,33 @@ Set by Caller 的**Tag 必须与 GE 中配置一致**，并且要在应用 Spec 
 
 例：`GE_NightBuff` 持续 30 秒、Attack +50，Ongoing 要求目标拥有 `World.Night`；白天 GE 可存在但暂时不提供加成。`World.Night` 必须由游戏逻辑授予到目标 ASC，并非自动读取世界时间。
 
-### 5.4 组件常见组合
+### 5.4 Components 的“出现条件”与 11 个独立演示
+
+**共同开启方式**：`Components` 右侧 `+` 新增元素 → 将新增元素的类型下拉框由 `None` 选成以下某一项；**对应的专有字段才会展开**。没有选中某种组件时，在 GE 详情里找不到它的配置项是正常的。相同组件是否能重复添加、某类组件对 Instant/Duration 的支持，请以详情面板验证和实际行为为准。
+
+| 选哪个 Component | 出现/应展开的主要配置区（常见名称） | 一做就懂的例子：它负责什么 |
+|---|---|---|
+| `Tags This Effect Has (Asset Tags)` | `Add Tags → Combined Tags / Add to Inherited / Remove from Inherited` | **中毒标识**：给 `GE_Poison` 添加 `Effect.Debuff.Poison`，供净化按 GE 类型筛选 |
+| `Grant Tags to Target Actor` | `Add Tags → Combined Tags / Add to Inherited / Remove from Inherited` | **角色中毒状态**：添加 `State.Poisoned`，其他 GA 查询目标是否中毒 |
+| `Block Abilities with Tags` | Block/Ability Tags（标签容器） | **沉默**：屏蔽 Ability Tags 含 `Ability.Magic` 的新 GA 激活 |
+| `Immunity to Other Effects` | Immunity Gameplay Effect Queries 等查询数组 | **防中毒护盾**：匹配 `Effect.Debuff.Poison`，拒绝新中毒 GE |
+| `Remove Other Effects` | Remove Gameplay Effect Queries 等查询数组 | **净化**：应用 `GE_Cleanse` 时移除已有 `Effect.Debuff` GE |
+| `Require Tags to Apply/Continue This Effect` | `Application Tag Requirements`、`Ongoing Tag Requirements`、`Removal Tag Requirements`；各自展开 Must Have/Must Not Have/Query | **夜间 Buff**：Ongoing 要求 `World.Night`，白天被抑制 |
+| `Chance To Apply This Effect` | Chance（概率，常可用 Scalable Float） | **30% 中毒**：当前 GE 应用概率 0.3，并非只让某个 Modifier 有概率成功 |
+| `Grant Gameplay Abilities` | Granted Abilities 列表、技能级别/撤销策略等 | **装备给技能**：Infinite GE 授予 `GA_Fireball`，卸装移除 GE |
+| `Apply Additional Effects` | On Application / On Complete Normal / On Complete Prematurely / On Complete Always 等支持的额外 GE 配置 | **爆炸印记**：5 秒自然到期后应用 `GE_Explosion` |
+| `Custom Can Apply This Effect` | 自定义应用要求类数组 | **低血量限制**：C++ 条件判断目标 Health 百分比 <30% 才允许施加 |
+| `UI Data (Text Only)` | UI Data 类/文本信息相关字段 | **Buff 提示**：为 `GE_AttackBuff` 提供展示名称和说明；不会自动生成 UI Widget |
+
+> 表中是**配置功能对应关系**，不同版本详细字段的显示名称可能略异，尤其是 Additional Effects、UI Data 和 Grant Gameplay Abilities。若某个子字段没有出现，先检查组件类型、数组是否点击 `+` 添加项目、是否展开条目，再看相关条件。不要把“标签组为空”与“组件不存在”混为一谈。
+
+**实例 1：沉默与控制免疫为什么不能混用？** `GE_Silence` 添加 `Block Abilities with Tags`，限制的是玩家启动 `GA_Fireball`；`GE_CCImmunity` 添加 `Immunity to Other Effects`，限制的是别人对自己施加 `GE_Stun`；`GE_Cleanse` 添加 `Remove Other Effects` 才处理已存在的眩晕 GE。
+
+**实例 2：中毒的三个不同标签位置**：`GE_Poison` 用 `Tags This Effect Has (Asset Tags)` 标记 `Effect.Debuff.Poison`，用 `Grant Tags to Target Actor` 授予目标 `State.Poisoned`；若某个 Modifier 要求目标有 `State.Weakened`，那是 **Modifiers → Target Tags → Must Have Tags**，不会授予标签。
+
+**实例 3：触发额外效果**：`GE_Mark` 是 Duration=5 的印记，组件 `Apply Additional Effects` 的 On Complete Normal 配 `GE_Explosion`；目标角色死亡≠印记自然到期，如要求死亡爆炸，额外写死亡事件触发。
+
+### 5.5 组件常见组合
 
 | 需求 | 必须/常用组件 | 对应作用 |
 |---|---|---|
@@ -297,6 +412,16 @@ Set by Caller 的**Tag 必须与 GE 中配置一致**，并且要在应用 Spec 
 ---
 
 ## 6. Gameplay Cues：把玩法效果与表现分开
+
+### 6.0 Gameplay Cue 字段出现条件
+
+| 操作 | 会出现什么 | 解释 |
+|---|---|---|
+| 展开 GE 的 `Gameplay Cues` 分类 | `Require Modifier Success to Trigger Cues`、`Suppress Stacking Cues`、`Gameplay Cues` 数组 | 与是否添加 Modifier 分开配置 |
+| `Gameplay Cues` 右侧点 `+` | 新数组元素及其 `Gameplay Cue Tags` / 参数相关字段 | 不点击 `+`，自然看不到 Cue Tag 的输入项 |
+| `Stacking Type = None / Aggregate ...` | `Suppress Stacking Cues` 可能仍显示 | 这个勾选项主要在实际发生堆叠时有意义，**不是开启堆叠的开关** |
+
+
 
 GE 管数值和状态；Cue 管粒子、音效、角色表现。Cue 是表现通道，不应承载权威游戏逻辑（尤其是联机）。
 
@@ -324,6 +449,20 @@ GE 管数值和状态；Cue 管粒子、音效、角色表现。Cue 是表现通
 ---
 
 ## 7. Stacking：重复应用相同 GE 怎么处理？
+
+### 7.0 Stacking 选项决定哪些字段显示
+
+| 先选择 | 随后出现的字段 | 注意 |
+|---|---|---|
+| `Stacking Type = None` | 通常只看到 `Stacking Type` | 其他堆叠策略字段因条件不满足而隐藏 |
+| `Aggregate by Source` | `Stack Limit Count`、`Stack Duration Refresh Policy`、`Stack Period Reset Policy`、`Stack Expiration Policy`、`Overflow Effects`、`Deny Overflow Application` 等 | 不同 Source 各自堆叠 |
+| `Aggregate by Target` | 同上 | 多个 Source 对同一目标聚合 |
+| `Deny Overflow Application = true` | `Clear Stack on Overflow` 才有适用/显示条件 | 否则不要因为看不到它而认为功能缺失 |
+| `Overflow Effects` 点击 `+` | 指定溢出应用的 GE 类 | 达到上限后**再施加**才产生 Overflow |
+
+> `Stack Limit Count` 等字段的源码 `EditCondition` 依赖 `StackingType != None`；Instant GE 不按活动 GE 堆叠方式运作。某些小版本会调整 `Clear Stack on Overflow` 的编辑条件，录屏时应实测。
+
+
 
 **堆叠不只是倍率增加，还管理聚合身份、层数、持续时间、周期以及上限溢出。**
 
@@ -389,7 +528,7 @@ GE 管数值和状态；Cue 管粒子、音效、角色表现。Cue 是表现通
 
 ---
 
-## 8. 从需求反推 GE：八个可照着做的案例
+## 8. 综合案例：把前面所有模块组合起来
 
 每个案例都明确写出**基础 GE 配置**和**使用的 Component 完整名称**。
 
@@ -445,7 +584,7 @@ GE 管数值和状态；Cue 管粒子、音效、角色表现。Cue 是表现通
 
 ---
 
-## 9. C++ 实战：四种 Magnitude 最后怎么用？
+## 9. 代码参考附录：四种 Magnitude 的完整 C++ 实现
 
 以下示例假设已存在：
 
@@ -690,15 +829,15 @@ Set by Caller    → Spec 的调用方写入 Magnitude
 
 ---
 
-## 12. 推荐学习和讲解顺序
+## 12. 视频讲解与学习顺序
 
 1. **最简单的 GE**：Instant 扣血、10 秒 Attack +50，先建立生命周期与 Attribute 修改概念。
 2. **Period**：中毒、立刻执行、抑制后重置计时。
 3. **Modifier**：Add/Multiply/Override、四种 Magnitude、Source/Target Tags。
-4. **Components**：先 Asset/Target Tags，然后 Block、Immunity、Remove、Requirements，最后其他组件。
+4. **Components**：每介绍一种 Component 就展示字段开启方式和一个独立例子；再对比 Asset/Target Tags、Block/Immunity/Remove。
 5. **Gameplay Cue**：把数值与表现拆开。
 6. **Stacking**：None / Source / Target、到期策略、溢出。
-7. **综合实战**：中毒、眩晕、净化、控制免疫、装备技能、爆炸印记。
+7. **综合实战**：前面已随模块做过单项案例，这一章才组合中毒、眩晕、净化、控制免疫、装备技能、爆炸印记。
 8. **C++ 与网络**：Spec、Set by Caller、MMC、AttributeSet 回调、权威施加与调试。
 
 ---
